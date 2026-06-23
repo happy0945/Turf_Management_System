@@ -1,0 +1,21 @@
+{
+  "name": "backend",
+  "version": "1.0.0",
+  "description": "Simple Turf management system icluding payment methods with booking system ",
+  "keywords": [
+    "JavaScript",
+    "TypeScript",
+    "NodeJs",
+    "Happy"
+  ],
+  "license": "ISC",
+  "author": "Happy Yadav",
+  "type": "commonjs",
+  "main": "index.js",
+  "scripts": {
+    "dev": "nodemon src/index.ts"
+  },
+  "devDependencies": {
+    "typescript": "^6.0.3"
+  }
+}
