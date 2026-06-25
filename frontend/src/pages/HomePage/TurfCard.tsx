@@ -20,7 +20,7 @@ const TurfCard = ({ image, name, location, pricePerHour, rating }:turfProb) => {
           <span className="text-yellow-400 mr-2">★</span>
           <span className="text-gray-800">{rating}</span>
         </div>
-        <div className="flex gap-2">
+        <div className="flex gap-2 mb-2">
           <button className="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-lg transition">
             Book Now
           </button>

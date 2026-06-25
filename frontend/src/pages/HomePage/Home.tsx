@@ -1,8 +1,8 @@
 
-import Hero from "./Hero";
+import Footer from "../../layout/Footer";
 import Features from "./Features";
+import Hero from "./Hero";
 import PopularTurf from "./PopularTurf";
-import Footer from "./Footer";
 
 const Home = () => {
   return (

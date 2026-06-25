@@ -1,6 +1,6 @@
 
 import {NavLink} from "react-router-dom";
-import logo from "../../assets/image.png"; 
+import logo from "../assets/image.png"; 
 
 import {
   FaFacebookF,

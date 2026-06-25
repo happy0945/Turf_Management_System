@@ -1,19 +1,19 @@
 
 
-import aboutBg from "../assets/cricket-ground.png"
-import aboutImage from "../assets/turfImages/turf2.jpg"
+import aboutBg from "../assets/cricket-ground.png";
+import aboutImage from "../assets/turfImages/turf2.jpg";
 
-import Footer from "./HomePage/Footer";
+import Footer from "../layout/Footer";
 
 import {
-  FaFutbol,
-  FaCalendarCheck,
-  FaShieldAlt,
-  FaHeadset,
-  FaBullseye,
-  FaEye,
-  FaUsers,
-  FaMapMarkedAlt,
+    FaBullseye,
+    FaCalendarCheck,
+    FaEye,
+    FaFutbol,
+    FaHeadset,
+    FaMapMarkedAlt,
+    FaShieldAlt,
+    FaUsers,
 } from "react-icons/fa";
 
 const About = () => {

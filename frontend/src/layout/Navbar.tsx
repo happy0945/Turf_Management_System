@@ -57,12 +57,12 @@ const Navbar = () => {
         </div>
         {/* login and register buttons */}
         <div className=" hidden md:flex ml-4">
-          <button className="border border-green-600 text-green-600 hover:bg-green-600 hover:text-white font-semibold py-2 px-5 rounded-lg transition mr-2">
+          <NavLink to='/login' className="border border-green-600 text-green-600 hover:bg-green-600 hover:text-white font-semibold py-2 px-5 rounded-lg transition mr-2">
             Login
-          </button>
-          <button className="bg-green-600 hover:bg-green-700 text-white font-semibold py-2 px-5 rounded-lg transition">
+          </NavLink>
+          <NavLink to='/register' className="bg-green-600 hover:bg-green-700 text-white font-semibold py-2 px-5 rounded-lg transition">
             Register
-          </button>
+          </NavLink>
         </div>
 
         {/* Mobile View */}
@@ -100,13 +100,13 @@ const Navbar = () => {
             Contacts
           </NavLink>
 
-          <button className="border border-green-600 text-green-600 hover:bg-green-600 hover:text-white px-4 py-2 rounded-lg mr-2 transition">
+          <NavLink to='/login' className="border border-green-600 text-green-600 hover:bg-green-600 hover:text-white px-4 py-2 rounded-lg mr-2 transition">
   Login
-</button>
+</NavLink>
 
-          <button className="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-lg transition mr-2">
+          <NavLink to='/register' className="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-lg transition mr-2">
   Register
-</button>
+</NavLink>
         </div>
       )}
     </nav>
