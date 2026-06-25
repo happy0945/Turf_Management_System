@@ -20,7 +20,9 @@ const Navbar = () => {
               alt="Logo"
               className="h-6 w-6 inline-block mr-1 rounded-full"
             />
-            <span className="text-gray-900 font-bold text-2xl">TurfBook</span>
+           <h2 className="text-3xl font-bold">
+                  <span className="text-green-500">Turf</span>Hub
+                </h2>
           </Link>
         </div>
         {/* creating list of about contact etc */}

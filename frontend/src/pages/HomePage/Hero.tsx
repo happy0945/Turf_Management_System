@@ -77,7 +77,7 @@ const Hero = () => {
             }}
             className="mt-12 flex gap-8"
           >
-            <div>
+            {/* <div>
               <h3 className="text-3xl font-bold text-green-400">500+</h3>
               <p className="text-gray-300">Turfs Listed</p>
             </div>
@@ -90,7 +90,7 @@ const Hero = () => {
             <div>
               <h3 className="text-3xl font-bold text-green-400">4.9★</h3>
               <p className="text-gray-300">User Rating</p>
-            </div>
+            </div> */}
           </motion.div>
         </div>
       </div>
