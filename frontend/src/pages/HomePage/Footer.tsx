@@ -126,19 +126,19 @@ const Footer = () => {
             <ul className="space-y-2 text-gray-400">
 
               <li>
-                <NavLink to="/faq" className={footerLinkClass}>
+                <NavLink to="#" className="text-gray-400 hover:text-green-500">
                   FAQ
                 </NavLink>
               </li>
 
               <li>
-                <NavLink to="/terms" className={footerLinkClass}>
+                <NavLink to="#" className="text-gray-400 hover:text-green-500">
                   Terms & Conditions
                 </NavLink>
               </li>
 
               <li>
-                <NavLink to="/privacy" className={footerLinkClass}>
+                <NavLink to="#" className= "text-gray-400 hover:text-green-500">
                   Privacy Policy
                 </NavLink>
               </li>
@@ -184,7 +184,7 @@ const Footer = () => {
         {/* Bottom */}
 
         <div className="border-t border-gray-700 mt-6 pt-2 text-center text-gray-400">
-          © 2026 TurfHub. All rights reserved.
+          © 2026 TurfHub (Happy Yadav). All rights reserved.
         </div>
 
       </div>
