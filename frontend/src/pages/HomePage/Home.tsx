@@ -1,24 +1,7 @@
-<<<<<<< HEAD
-
-=======
->>>>>>> 4c73f818b928dfa2ae71ce893db608d2b28c7fa7
 import Footer from "../../layout/Footer";
 import Features from "./Features";
 import Hero from "./Hero";
 import PopularTurf from "./PopularTurf";
-<<<<<<< HEAD
-
-const Home = () => {
-  return (
-    <>
-    <Hero/>
-    <Features/>
-    <PopularTurf/>
-    <Footer/>
-    </>
-    
-    
-=======
 import SportsCategories from "./SportsCategories";
 import HowItWorks from "./HowItWorks";
 import Testimonials from "./Testimonials";
@@ -79,7 +62,6 @@ const Home = () => {
       
       <Footer />
     </div>
->>>>>>> 4c73f818b928dfa2ae71ce893db608d2b28c7fa7
   );
 };
 
