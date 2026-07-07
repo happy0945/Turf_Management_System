@@ -14,11 +14,15 @@ connectDB()
             console.log(`🚀 Server Listening at PORT : ${PORT}`)
         });
 
-        server.on("error",(error: any)=>{
+        server.on("error",(error)=>{
             console.log("Error while connecting server:",error.message)
         });
-    } catch (error: any) {
-        console.log("Error while connecting server:",error.message)
+    } catch (error: unknown) {
+        if (error instanceof Error) {
+        console.log("Error while connecting server:", error.message);
+    } else {
+        console.log("Unknown error:", error);
+    }
     }
     
 })
