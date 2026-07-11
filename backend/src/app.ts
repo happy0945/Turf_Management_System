@@ -1,5 +1,6 @@
 import express from "express";
 import cookieParser from "cookie-parser";
+import authRouter from "./routes/user.auth.js";
 import cors from "cors";
 const app = express();
 
@@ -15,6 +16,7 @@ app.use(cookieParser());
 // use for decode data from url
 app.use(express.urlencoded({ extended: true }));
 app.use(express.static("public"));
+app.use('/users',authRouter)
 
 
 

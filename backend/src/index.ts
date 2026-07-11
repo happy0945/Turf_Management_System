@@ -1,28 +1,28 @@
-
-
-import dotenv from "dotenv";
-import connectDB from "./db/index.js";
+import "./utils/env.js";
+import connectDB from "./config/db.js";
+import redisClient from "./config/redis.js";
 import { app } from "./app.js";
-dotenv.config();
+
+
 
 const PORT = process.env.PORT || 8000;
 
-connectDB()
-.then(()=>{
-    try {
-        const server = app.listen(PORT, ()=>{
-            console.log(`🚀 Server Listening at PORT : ${PORT}`)
-        });
+Promise.all([
+  connectDB(),
+  redisClient.connect(),
+])
+  .then(() => {
+    console.log("✅ Redis Connected");
 
-        server.on("error",(error)=>{
-            console.log("Error while connecting server:",error.message)
-        });
-    } catch (error: unknown) {
-        if (error instanceof Error) {
-        console.log("Error while connecting server:", error.message);
-    } else {
-        console.log("Unknown error:", error);
-    }
-    }
-    
-})
+    const server = app.listen(PORT, () => {
+      console.log(`🚀 Server Listening at PORT: ${PORT}`);
+    });
+
+    server.on("error", (error) => {
+      console.error("❌ Server Error:", error.message);
+    });
+  })
+  .catch((error) => {
+    console.error("❌ Failed to start application:", error.message);
+    process.exit(1);
+  });
