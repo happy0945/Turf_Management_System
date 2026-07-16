@@ -173,7 +173,21 @@ const adminRegister = asyncHandler (async (req: Request, res: Response) => {
 
     });
 
+const deleteProfile = asyncHandler (async (req: Request, res: Response)=>{
+
+    const userId = req.user?._id;
+
+    await User.findByIdAndDelete(userId)
+    res.send(200).json(
+        new ApiResponse(
+            201,
+            "Profile Deleted Successfully"
+        )
+    )
+
+
+})
 
 
 
-export { registerUser, loginUser,logoutUser,adminRegister };
+export { registerUser, loginUser,logoutUser,adminRegister,deleteProfile };

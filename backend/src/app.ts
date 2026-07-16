@@ -16,7 +16,7 @@ app.use(cookieParser());
 // use for decode data from url
 app.use(express.urlencoded({ extended: true }));
 app.use(express.static("public"));
-app.use('/users',authRouter)
+app.use('/auth',authRouter)
 
 
 

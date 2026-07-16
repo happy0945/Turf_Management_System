@@ -6,7 +6,7 @@ interface UserData {
     fullName: string;
     emailId: string;
     password: string;
-    contactNumber?: string;
+    contactNumber: string;
 }
 
 const validate = (data:UserData) =>{
