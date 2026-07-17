@@ -1,6 +1,9 @@
 import mongoose, { Schema,Types , Document } from "mongoose";
 
-
+interface CloudinaryImage {
+  url: string;
+  public_id: string;
+}
 export interface ITurf extends Document{
     owner: Types.ObjectId,
     turfName: string,
@@ -17,7 +20,7 @@ export interface ITurf extends Document{
     slotDuration:number,
     pricePerSlot:number,
     amenities:string[],
-    images:string[],
+    images:CloudinaryImage[],
     rating:number,
     totalReviews:number,
     status:'active'|'inactive',
@@ -95,10 +98,18 @@ const turfSchema = new Schema<ITurf>({
             required: true
         }
     ],
-    images:{
-        type: [String],
-        required:true
+    images: [
+  {
+    url: {
+      type: String,
+      required: true,
     },
+    public_id: {
+      type: String,
+      required: true,
+    },
+  },
+],
     rating:{
         type:Number,
         default: 0,

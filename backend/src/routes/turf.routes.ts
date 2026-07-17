@@ -14,4 +14,4 @@ turfRouter.delete("/delete/:id",userMiddleware,adminOrOwnerMiddleware,deleteTurf
 turfRouter.get("/",getAllTurf);
 turfRouter.get("/:id", getTurfById);
 
-
+export default turfRouter;

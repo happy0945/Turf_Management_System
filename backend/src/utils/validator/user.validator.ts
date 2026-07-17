@@ -1,6 +1,6 @@
 
 import validator from 'validator';
-import { ApiError } from './ApiError.js';
+import { ApiError } from '../ApiError.js';
 
 interface UserData {
     fullName: string;

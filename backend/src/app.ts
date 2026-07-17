@@ -1,6 +1,7 @@
 import express from "express";
 import cookieParser from "cookie-parser";
 import authRouter from "./routes/user.auth.js";
+import turfRouter from "./routes/turf.routes.js";
 import cors from "cors";
 const app = express();
 
@@ -17,6 +18,7 @@ app.use(cookieParser());
 app.use(express.urlencoded({ extended: true }));
 app.use(express.static("public"));
 app.use('/auth',authRouter)
+app.use('/turf',turfRouter)
 
 
 

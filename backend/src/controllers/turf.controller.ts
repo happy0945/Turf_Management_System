@@ -3,50 +3,72 @@ import Turf from "../models/turf.model.js"
 import { asyncHandler } from "../utils/asyncHandler.js";
 import { ApiResponse } from '../utils/ApirResponse.js';
 import { ApiError } from '../utils/ApiError.js';
+import { CreateTurfInput } from '../utils/validator/turf.validator.js';
+import { uploadManyOnCloudinary } from '../utils/cloudinaryUpload.js';
 
 
 // =============== Created ==============
 const createTurf = asyncHandler(async (req:Request, res:Response)=>{
+
+    const body = req.body as CreateTurfInput
+    const files = (req.files as Express.Multer.File[])|| [];
+
+    if(files.length === 0)
+        throw new ApiError(400,"At least one image is compulsory")
+
+    const uploadedImages = await uploadManyOnCloudinary(files.map((f)=>f.path))
+
+    if (!uploadedImages.length) {
+    throw new ApiError(500, "Image upload failed");
+}
+
+
     const owner = req.body?._id
     const turf = await Turf.create({
         owner,
-        ...req.body   // ...req.body accepts all data without doing it manually and adding owner to the response so it clear who added this turf
+        images: uploadedImages,
+        ...body
     })
-
-    // without above method we can create something like this
-    //     Turf.create({
-    //     turfName:req.body.turfName,
-    //     description:req.body.description,
-    //     openingTime:req.body.openingTime,
-    //     closingTime:req.body.closingTime,
-    //     pricePerSlot:req.body.pricePerSlot,
-    //     ...
-    // });
     return res.status(201).json(
         new ApiResponse(
             201,
             turf,
             "Turf Created Successfully"
-        ),
+        )
 
     );
 
 })
 // =============== getAllTurf ===============
 const getAllTurf = asyncHandler(async(req:Request, res:Response)=>{
-    const turfs = await Turf.find({ status: 'active'}) // status : 'active' means find turf which is active it automatically filter all turf
+     const turfs = await Turf.find({ status: "active" })
+        .select("owner turfName location sportsType pricePerSlot rating images")
+        .sort({ createdAt: -1 })
+        .lean();
+
     return res.status(200).json(
         new ApiResponse(
             200,
             turfs,
-            "Turf Fetch Successfully"
+            "Turfs fetched successfully."
         )
-    )
+    );
 })
 // =============== getTurfById ================
 const getTurfById = asyncHandler(async (req:Request,res:Response)=>{
 
-    const turf = await Turf.findById(req.params.id)
+    const { turfId } = req.params
+    if (!turfId) {
+        throw new ApiError(400, "Invalid Turf ID");
+    }
+
+    const turf = await Turf.findOne({
+        _id: turfId,
+        status:"active",
+    }).
+    select("turfName description location sportsType openingTime closingTime pricePerSlot rating images amenities owner")
+    .populate("owner","fullName, emailId")
+    .lean();
 
     // check if turf is available or not
     if(!turf)
