@@ -51,6 +51,7 @@ const turfSchema = new Schema<ITurf>({
             type: String,
             enum: ["Point"],
             default: "Point",
+            required:true
         },
         coordinates:{
             type:[Number],   // for store longitude and latitude

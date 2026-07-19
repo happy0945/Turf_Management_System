@@ -2,7 +2,7 @@ import { Request, Response } from 'express';
 import bcrypt from 'bcrypt';
 import User from '../models/user.model.js';
 import generateAuthToken from '../utils/generateAuthToken.js';
-import validate from '../utils/validator.js';
+import validate from "../utils/validator/user.validator.js";
 import jwt, { JwtPayload } from "jsonwebtoken"
 import { ApiError } from '../utils/ApiError.js';
 import { ApiResponse } from '../utils/ApirResponse.js';

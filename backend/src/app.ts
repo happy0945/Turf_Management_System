@@ -2,6 +2,7 @@ import express from "express";
 import cookieParser from "cookie-parser";
 import authRouter from "./routes/user.auth.js";
 import turfRouter from "./routes/turf.routes.js";
+import { errorHandler } from "./middlewares/error.middleware.js";
 import cors from "cors";
 const app = express();
 
@@ -20,6 +21,9 @@ app.use(express.static("public"));
 app.use('/auth',authRouter)
 app.use('/turf',turfRouter)
 
+
+// error handler 
+app.use(errorHandler)
 
 
 export {app}
