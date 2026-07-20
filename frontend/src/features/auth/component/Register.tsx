@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useForm } from "react-hook-form";
-import { FaCheckCircle, FaEnvelope, FaLock, FaPhoneAlt, FaUser } from "react-icons/fa";
+import { FaUser, FaEnvelope, FaPhoneAlt, FaLock, FaCheckCircle, FaBuilding, FaMapMarkerAlt, FaFileAlt } from "react-icons/fa";
+import { motion, AnimatePresence } from "framer-motion";
 import { NavLink, useNavigate } from "react-router-dom";
 
 type RegisterFormData = {
@@ -8,10 +9,14 @@ type RegisterFormData = {
   email: string;
   password: string;
   contactNumber: string;
+  businessName?: string;
+  businessAddress?: string;
+  licenseNumber?: string;
 };
 
 const Register = () => {
   const [loading, setLoading] = useState(false);
+  const [selectedRole, setSelectedRole] = useState<"customer" | "owner">("customer");
   const navigate = useNavigate();
 
   const {
@@ -27,10 +32,10 @@ const Register = () => {
       setLoading(true);
       
       // Simulate backend register time
-      await new Promise((resolve) => setTimeout(resolve, 1500));
+      await new Promise((resolve) => setTimeout(resolve, 1200));
       
       const users = JSON.parse(localStorage.getItem("registeredUsers") || "[]");
-      const userExists = users.some((u: any) => u.email === data.email);
+      const userExists = users.some((u: any) => u.email.trim().toLowerCase() === data.email.trim().toLowerCase());
       
       if (userExists) {
         alert("This email is already registered. Redirecting to Login.");
@@ -43,8 +48,19 @@ const Register = () => {
         email: data.email,
         password: data.password,
         contactNumber: data.contactNumber,
+        role: selectedRole,
+        status: selectedRole === "owner" ? "Pending" : "Verified",
+        businessName: selectedRole === "owner" ? data.businessName : undefined,
+        businessAddress: selectedRole === "owner" ? data.businessAddress : undefined,
+        licenseNumber: selectedRole === "owner" ? data.licenseNumber : undefined,
       });
       localStorage.setItem("registeredUsers", JSON.stringify(users));
+      
+      alert(
+        selectedRole === "owner"
+          ? "Owner registration complete! Your account is pending verification by administrators."
+          : "Registration successful! You can now log in."
+      );
       
       // Redirect to login page
       navigate("/login");
@@ -69,6 +85,37 @@ const Register = () => {
 
         <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
           
+          {/* Account Role Selector */}
+          <div>
+            <label className="block text-xs font-bold uppercase tracking-wider text-slate-400 mb-2">
+              Register As
+            </label>
+            <div className="grid grid-cols-2 gap-2 bg-slate-100 dark:bg-slate-950 p-1.5 rounded-2xl border border-slate-200/50 dark:border-slate-900">
+              <button
+                type="button"
+                onClick={() => setSelectedRole("customer")}
+                className={`py-2.5 rounded-xl text-xs font-bold transition cursor-pointer ${
+                  selectedRole === "customer"
+                    ? "bg-green-500 text-white shadow-md shadow-green-500/10"
+                    : "text-slate-500 dark:text-slate-400 hover:bg-slate-200/40 dark:hover:bg-slate-900/50"
+                }`}
+              >
+                Player / Booker
+              </button>
+              <button
+                type="button"
+                onClick={() => setSelectedRole("owner")}
+                className={`py-2.5 rounded-xl text-xs font-bold transition cursor-pointer ${
+                  selectedRole === "owner"
+                    ? "bg-green-500 text-white shadow-md shadow-green-500/10"
+                    : "text-slate-500 dark:text-slate-400 hover:bg-slate-200/40 dark:hover:bg-slate-900/50"
+                }`}
+              >
+                Turf Owner
+              </button>
+            </div>
+          </div>
+
           {/* Username */}
           <div>
             <label className="block text-xs font-bold uppercase tracking-wider text-slate-400 mb-1.5">
@@ -120,7 +167,7 @@ const Register = () => {
                   },
                 })}
               />
-              <div className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-450">
+              <div className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-455">
                 <FaEnvelope />
               </div>
             </div>
@@ -151,7 +198,7 @@ const Register = () => {
                   },
                 })}
               />
-              <div className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-450">
+              <div className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-455">
                 <FaPhoneAlt />
               </div>
             </div>
@@ -186,7 +233,7 @@ const Register = () => {
                   },
                 })}
               />
-              <div className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-450">
+              <div className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-455">
                 <FaLock />
               </div>
             </div>
@@ -196,6 +243,106 @@ const Register = () => {
               </p>
             )}
           </div>
+
+          {/* Conditional Owner Verification Fields */}
+          <AnimatePresence>
+            {selectedRole === "owner" && (
+              <motion.div
+                initial={{ opacity: 0, height: 0 }}
+                animate={{ opacity: 1, height: "auto" }}
+                exit={{ opacity: 0, height: 0 }}
+                transition={{ duration: 0.3 }}
+                className="space-y-4 overflow-hidden"
+              >
+                <div className="border-t border-slate-100 dark:border-slate-800 pt-4 mt-2">
+                  <span className="text-[10px] font-black uppercase text-green-500 tracking-wider">
+                    Owner Verification Details
+                  </span>
+                </div>
+
+                {/* Business Name */}
+                <div>
+                  <label className="block text-xs font-bold uppercase tracking-wider text-slate-400 mb-1.5">
+                    Turf Business / Brand Name
+                  </label>
+                  <div className="relative">
+                    <input
+                      type="text"
+                      placeholder="e.g. Greenfield Sports LLC"
+                      className={`w-full bg-slate-50 dark:bg-slate-950 border text-slate-800 dark:text-slate-200 py-3 pl-10 pr-4 rounded-xl focus:outline-none focus:ring-1 focus:ring-green-500 transition-all ${
+                        errors.businessName ? "border-red-500" : "border-slate-200 dark:border-slate-800"
+                      }`}
+                      {...register("businessName", {
+                        required: selectedRole === "owner" ? "Business name is required" : false,
+                      })}
+                    />
+                    <div className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-455">
+                      <FaBuilding />
+                    </div>
+                  </div>
+                  {errors.businessName && (
+                    <p className="text-red-500 text-[10px] mt-1 font-semibold pl-1">
+                      {errors.businessName.message}
+                    </p>
+                  )}
+                </div>
+
+                {/* Business Address */}
+                <div>
+                  <label className="block text-xs font-bold uppercase tracking-wider text-slate-400 mb-1.5">
+                    Turf Location Address
+                  </label>
+                  <div className="relative">
+                    <input
+                      type="text"
+                      placeholder="e.g. 123 Main St, New York"
+                      className={`w-full bg-slate-50 dark:bg-slate-950 border text-slate-800 dark:text-slate-200 py-3 pl-10 pr-4 rounded-xl focus:outline-none focus:ring-1 focus:ring-green-500 transition-all ${
+                        errors.businessAddress ? "border-red-500" : "border-slate-200 dark:border-slate-800"
+                      }`}
+                      {...register("businessAddress", {
+                        required: selectedRole === "owner" ? "Turf location address is required" : false,
+                      })}
+                    />
+                    <div className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-455">
+                      <FaMapMarkerAlt />
+                    </div>
+                  </div>
+                  {errors.businessAddress && (
+                    <p className="text-red-500 text-[10px] mt-1 font-semibold pl-1">
+                      {errors.businessAddress.message}
+                    </p>
+                  )}
+                </div>
+
+                {/* License Number */}
+                <div>
+                  <label className="block text-xs font-bold uppercase tracking-wider text-slate-400 mb-1.5">
+                    License / Government ID Proof
+                  </label>
+                  <div className="relative">
+                    <input
+                      type="text"
+                      placeholder="e.g. LIC-99887"
+                      className={`w-full bg-slate-50 dark:bg-slate-950 border text-slate-800 dark:text-slate-200 py-3 pl-10 pr-4 rounded-xl focus:outline-none focus:ring-1 focus:ring-green-500 transition-all ${
+                        errors.licenseNumber ? "border-red-500" : "border-slate-200 dark:border-slate-800"
+                      }`}
+                      {...register("licenseNumber", {
+                        required: selectedRole === "owner" ? "License or ID proof is required" : false,
+                      })}
+                    />
+                    <div className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-455">
+                      <FaFileAlt />
+                    </div>
+                  </div>
+                  {errors.licenseNumber && (
+                    <p className="text-red-500 text-[10px] mt-1 font-semibold pl-1">
+                      {errors.licenseNumber.message}
+                    </p>
+                  )}
+                </div>
+              </motion.div>
+            )}
+          </AnimatePresence>
 
           {/* Submit */}
           <button

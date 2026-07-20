@@ -42,7 +42,7 @@ const Login = () => {
       await new Promise((resolve) => setTimeout(resolve, 1500));
 
       const users = JSON.parse(localStorage.getItem("registeredUsers") || "[]");
-      const matchedUser = users.find((u: any) => u.email === data.email);
+      const matchedUser = users.find((u: any) => u.email.trim().toLowerCase() === data.email.trim().toLowerCase());
 
       if (!matchedUser) {
         setFormError("Account does not exist. Please register first.");
@@ -57,9 +57,16 @@ const Login = () => {
       localStorage.setItem("userToken", "mock-session-jwt-token-12345");
       localStorage.setItem("userEmail", matchedUser.email);
       localStorage.setItem("userName", matchedUser.username);
+      localStorage.setItem("userRole", matchedUser.role || "customer");
 
-      // Redirect to catalog page
-      navigate("/book-turf");
+      // Redirect to correct dashboard based on role
+      if (matchedUser.role === "admin") {
+        navigate("/admin");
+      } else if (matchedUser.role === "owner") {
+        navigate("/owner");
+      } else {
+        navigate("/book-turf");
+      }
     } catch (error) {
       console.log(error);
     } finally {

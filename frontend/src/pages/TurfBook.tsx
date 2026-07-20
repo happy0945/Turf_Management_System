@@ -1,6 +1,6 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import {
   FaMapMarkerAlt,
   FaStar,
@@ -12,6 +12,7 @@ import {
   FaArrowRight,
   FaArrowLeft,
   FaSearch,
+  FaClipboardList,
 } from "react-icons/fa";
 import { turfCatalogData } from "./HomePage/turfCatalogData";
 import type { TurfItem } from "./HomePage/turfCatalogData";
@@ -45,6 +46,13 @@ const formatDateFriendly = (dateStr: string) => {
   });
 };
 
+const getOwnerName = (ownerEmail?: string) => {
+  if (!ownerEmail) return "System Admin";
+  const users = JSON.parse(localStorage.getItem("registeredUsers") || "[]");
+  const matched = users.find((u: any) => u.email.trim().toLowerCase() === ownerEmail.trim().toLowerCase());
+  return matched ? matched.username : "Verified Partner";
+};
+
 // Time Slots list
 const TIME_SLOTS = [
   { id: "s1", time: "06:00 AM - 08:00 AM", period: "Morning" },
@@ -66,10 +74,44 @@ getNext7Days().forEach((day) => {
   ];
 });
 
+interface BookingItem {
+  reference: string;
+  turfId: number;
+  turfName: string;
+  date: string;
+  slotTime: string;
+  playerName: string;
+  playerEmail: string;
+  playerPhone: string;
+  amount: number;
+  status: string;
+  paymentMethod: string;
+  timestamp: string;
+}
+
 const TurfBook = () => {
+  const navigate = useNavigate();
+  // Load dynamically from localStorage database
+  const [turfs, setTurfs] = useState<TurfItem[]>([]);
+
+  useEffect(() => {
+    const loadTurfs = () => {
+      const local = localStorage.getItem("turfCatalogData");
+      setTurfs(local ? JSON.parse(local) : turfCatalogData);
+    };
+    loadTurfs();
+    window.addEventListener("storage", loadTurfs);
+    const interval = setInterval(loadTurfs, 2000);
+    return () => {
+      window.removeEventListener("storage", loadTurfs);
+      clearInterval(interval);
+    };
+  }, []);
+
   // Master selection state
   const [activeTurf, setActiveTurf] = useState<TurfItem | null>(null);
   const [showAuthRequired, setShowAuthRequired] = useState(false);
+  const [allBookings, setAllBookings] = useState<BookingItem[]>([]);
 
   // Listing filters states
   const [searchTerm, setSearchTerm] = useState("");
@@ -79,6 +121,7 @@ const TurfBook = () => {
   const [bookingStep, setBookingStep] = useState<number>(1);
   const [bookingDate, setBookingDate] = useState<string>("");
   const [bookingSlot, setBookingSlot] = useState<{ id: string; time: string } | null>(null);
+  const [activeDetailImage, setActiveDetailImage] = useState<string | null>(null);
 
   // Player Form state
   const [playerDetails, setPlayerDetails] = useState({
@@ -100,7 +143,14 @@ const TurfBook = () => {
     setBookingSlot(null);
     setPlayerDetails({ name: "", email: "", phone: "" });
     setBookingReference("");
+    setActiveDetailImage(null);
+    setActiveTurf(null); // Return to catalog
   };
+
+  useEffect(() => {
+    const loaded = JSON.parse(localStorage.getItem("bookings") || "[]");
+    setAllBookings(loaded);
+  }, [bookingStep, activeTurf]);
 
   const handleSelectTurf = (turf: TurfItem) => {
     const token = localStorage.getItem("userToken");
@@ -109,6 +159,7 @@ const TurfBook = () => {
     } else {
       setActiveTurf(turf);
       handleResetBooking();
+      setActiveDetailImage(turf.images && turf.images.length > 0 ? turf.images[0] : turf.image);
       const savedEmail = localStorage.getItem("userEmail") || "";
       const savedName = localStorage.getItem("userName") || "";
       setPlayerDetails({
@@ -130,10 +181,30 @@ const TurfBook = () => {
     const ref = "THB-" + Math.floor(100000 + Math.random() * 900000);
     setBookingReference(ref);
     setBookingStep(4);
+
+    if (activeTurf && bookingDate && bookingSlot) {
+      const activeBookings = JSON.parse(localStorage.getItem("bookings") || "[]");
+      const newBooking = {
+        reference: ref,
+        turfId: activeTurf.id,
+        turfName: activeTurf.name,
+        date: bookingDate,
+        slotTime: bookingSlot.time,
+        playerName: playerDetails.name,
+        playerEmail: playerDetails.email,
+        playerPhone: playerDetails.phone,
+        amount: activeTurf.pricePerHour * 2 + 3.5, // Total with fee
+        status: "Confirmed",
+        paymentMethod: paymentMethod,
+        timestamp: new Date().toISOString(),
+      };
+      activeBookings.push(newBooking);
+      localStorage.setItem("bookings", JSON.stringify(activeBookings));
+    }
   };
 
   // Filter Catalog Data
-  const filteredTurfs = turfCatalogData.filter((turf) => {
+  const filteredTurfs = turfs.filter((turf) => {
     const matchName = turf.name.toLowerCase().includes(searchTerm.toLowerCase());
     const matchLoc = turf.location.toLowerCase().includes(searchTerm.toLowerCase());
     const matchSport = selectedSport === "All" || turf.sport === selectedSport;
@@ -219,6 +290,11 @@ const TurfBook = () => {
                         <div className="absolute top-4 left-4 bg-slate-950/80 text-white border border-slate-700 px-3.5 py-1 rounded-full text-xs font-bold uppercase tracking-wider">
                           {turf.sport}
                         </div>
+                        {/* Owner Badge */}
+                        <div className="absolute bottom-4 left-4 bg-slate-950/80 backdrop-blur-md text-white border border-slate-750 px-2.5 py-1 rounded-xl text-[10px] font-extrabold flex items-center gap-1.5 shadow-md">
+                          <div className="w-1.5 h-1.5 bg-green-500 rounded-full animate-pulse" />
+                          <span>Owner: {getOwnerName(turf.ownerId)}</span>
+                        </div>
                       </div>
 
                       {/* Info Details */}
@@ -293,11 +369,11 @@ const TurfBook = () => {
                 {/* Left Panel: Specifications */}
                 <div className="lg:col-span-5 bg-white dark:bg-slate-900/40 backdrop-blur-md border border-slate-200 dark:border-slate-800 rounded-3xl p-6 shadow-[0_8px_30px_rgba(0,0,0,0.02)]">
                   {/* Photo Preview */}
-                  <div className="relative h-64 w-full overflow-hidden rounded-2xl mb-6 border border-slate-100 dark:border-slate-850">
+                  <div className="relative h-64 w-full overflow-hidden rounded-2xl mb-4 border border-slate-100 dark:border-slate-855">
                     <img
-                      src={activeTurf.image}
+                      src={activeDetailImage || activeTurf.image}
                       alt={activeTurf.name}
-                      className="w-full h-full object-cover"
+                      className="w-full h-full object-cover transition-all duration-500"
                     />
                     <div className="absolute top-4 right-4 bg-white/95 dark:bg-slate-950/80 backdrop-blur-md border border-slate-200 dark:border-slate-700 text-green-600 dark:text-green-400 font-extrabold px-3.5 py-1.5 rounded-full text-sm">
                       ${activeTurf.pricePerHour}/hr
@@ -305,7 +381,31 @@ const TurfBook = () => {
                     <div className="absolute top-4 left-4 bg-slate-950/80 text-white border border-slate-700 px-3.5 py-1.5 rounded-full text-xs font-bold uppercase tracking-wider">
                       {activeTurf.sport}
                     </div>
+                    {/* Owner Badge */}
+                    <div className="absolute bottom-4 left-4 bg-slate-950/80 backdrop-blur-md text-white border border-slate-750 px-3 py-1.5 rounded-xl text-[10px] font-extrabold flex items-center gap-1.5 shadow-md">
+                      <div className="w-1.5 h-1.5 bg-green-500 rounded-full animate-pulse" />
+                      <span>Owner: {getOwnerName(activeTurf.ownerId)}</span>
+                    </div>
                   </div>
+
+                  {/* Thumbnails if multiple images exist */}
+                  {activeTurf.images && activeTurf.images.length > 1 && (
+                    <div className="flex gap-2 mb-6 overflow-x-auto pb-2 scrollbar-none">
+                      {activeTurf.images.map((imgUrl: string, idx: number) => (
+                        <button
+                          key={idx}
+                          onClick={() => setActiveDetailImage(imgUrl)}
+                          className={`relative w-16 aspect-video rounded-lg overflow-hidden border-2 cursor-pointer flex-shrink-0 transition-all ${
+                            (activeDetailImage || activeTurf.image) === imgUrl
+                              ? "border-green-500 scale-105"
+                              : "border-slate-200 dark:border-slate-800 opacity-60 hover:opacity-100"
+                          }`}
+                        >
+                          <img src={imgUrl} alt="Thumbnail" className="w-full h-full object-cover" />
+                        </button>
+                      ))}
+                    </div>
+                  )}
 
                   <h2 className="text-2xl font-black text-slate-800 dark:text-white mb-2">
                     {activeTurf.name}
@@ -432,7 +532,15 @@ const TurfBook = () => {
                               </label>
                               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                                 {TIME_SLOTS.map((slot) => {
-                                  const isBooked = MOCK_BOOKED_SLOTS[bookingDate]?.includes(slot.id);
+                                  const isBooked =
+                                    (MOCK_BOOKED_SLOTS[bookingDate]?.includes(slot.id)) ||
+                                    allBookings.some(
+                                      (b) =>
+                                        b.turfId === activeTurf?.id &&
+                                        b.date === bookingDate &&
+                                        b.slotTime === slot.time &&
+                                        b.status === "Confirmed"
+                                    );
                                   const isSelected = bookingSlot?.id === slot.id;
 
                                   return (
@@ -782,20 +890,29 @@ const TurfBook = () => {
                     )}
 
                     {bookingStep === 4 && (
-                      <div className="w-full flex gap-3">
+                      <div className="w-full flex flex-col gap-3">
                         <button
-                          onClick={() => alert("Digital ticket PDF downloaded! (Mock)")}
-                          className="w-1/2 py-3.5 px-4 rounded-xl border border-slate-200 dark:border-slate-800 flex items-center justify-center gap-2 font-bold text-slate-700 dark:text-slate-350 hover:bg-slate-100 dark:hover:bg-slate-900 transition text-sm cursor-pointer"
+                          onClick={() => navigate("/profile")}
+                          className="w-full py-3.5 px-4 rounded-xl bg-green-500 hover:bg-green-600 text-white font-bold transition flex items-center justify-center gap-2 text-sm shadow-md shadow-green-500/10 cursor-pointer"
                         >
-                          <FaDownload />
-                          <span>Download Ticket</span>
+                          <FaClipboardList />
+                          <span>View My Bookings</span>
                         </button>
-                        <button
-                          onClick={handleResetBooking}
-                          className="w-1/2 py-3.5 px-4 rounded-xl bg-green-500 hover:bg-green-600 text-white font-bold transition text-sm shadow-md shadow-green-500/10 cursor-pointer"
-                        >
-                          Book Another Slot
-                        </button>
+                        <div className="flex gap-3">
+                          <button
+                            onClick={() => alert("Digital ticket PDF downloaded! (Mock)")}
+                            className="w-1/2 py-3.5 px-4 rounded-xl border border-slate-200 dark:border-slate-800 flex items-center justify-center gap-2 font-bold text-slate-700 dark:text-slate-350 hover:bg-slate-100 dark:hover:bg-slate-900 transition text-sm cursor-pointer"
+                          >
+                            <FaDownload />
+                            <span>Download Ticket</span>
+                          </button>
+                          <button
+                            onClick={handleResetBooking}
+                            className="w-1/2 py-3.5 px-4 rounded-xl border border-slate-200 dark:border-slate-800 font-bold text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-900 transition text-sm cursor-pointer"
+                          >
+                            Book Another Slot
+                          </button>
+                        </div>
                       </div>
                     )}
                   </div>

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Link } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import {
@@ -45,6 +45,13 @@ const formatDateFriendly = (dateStr: string) => {
   });
 };
 
+const getOwnerName = (ownerEmail?: string) => {
+  if (!ownerEmail) return "System Admin";
+  const users = JSON.parse(localStorage.getItem("registeredUsers") || "[]");
+  const matched = users.find((u: any) => u.email.trim().toLowerCase() === ownerEmail.trim().toLowerCase());
+  return matched ? matched.username : "Verified Partner";
+};
+
 // Time Slots list
 const TIME_SLOTS = [
   { id: "s1", time: "06:00 AM - 08:00 AM", period: "Morning" },
@@ -66,18 +73,52 @@ getNext7Days().forEach((day) => {
   ];
 });
 
+interface BookingItem {
+  reference: string;
+  turfId: number;
+  turfName: string;
+  date: string;
+  slotTime: string;
+  playerName: string;
+  playerEmail: string;
+  playerPhone: string;
+  amount: number;
+  status: string;
+  paymentMethod: string;
+  timestamp: string;
+}
+
 const Turfs = () => {
+  // Load dynamically from localStorage database
+  const [turfs, setTurfs] = useState<TurfItem[]>([]);
+
+  useEffect(() => {
+    const loadTurfs = () => {
+      const local = localStorage.getItem("turfCatalogData");
+      setTurfs(local ? JSON.parse(local) : turfCatalogData);
+    };
+    loadTurfs();
+    window.addEventListener("storage", loadTurfs);
+    const interval = setInterval(loadTurfs, 2000);
+    return () => {
+      window.removeEventListener("storage", loadTurfs);
+      clearInterval(interval);
+    };
+  }, []);
+
   // Filter States
   const [searchTerm, setSearchTerm] = useState("");
   const [selectedSport, setSelectedSport] = useState<string>("All");
   const [sortOption, setSortOption] = useState<string>("Featured");
   const [showAuthRequired, setShowAuthRequired] = useState(false);
+  const [allBookings, setAllBookings] = useState<BookingItem[]>([]);
 
   // Booking Wizard States
   const [bookingTurf, setBookingTurf] = useState<TurfItem | null>(null);
   const [bookingStep, setBookingStep] = useState<number>(1);
   const [bookingDate, setBookingDate] = useState<string>("");
   const [bookingSlot, setBookingSlot] = useState<{ id: string; time: string } | null>(null);
+  const [activeDetailImage, setActiveDetailImage] = useState<string | null>(null);
 
   // Player Details States
   const [playerDetails, setPlayerDetails] = useState({
@@ -100,7 +141,13 @@ const Turfs = () => {
     setBookingSlot(null);
     setPlayerDetails({ name: "", email: "", phone: "" });
     setBookingReference("");
+    setActiveDetailImage(null);
   };
+
+  useEffect(() => {
+    const loaded = JSON.parse(localStorage.getItem("bookings") || "[]");
+    setAllBookings(loaded);
+  }, [bookingStep, bookingTurf]);
 
   // Handle Form Submission / Next step triggers
   const handleSlotSelection = () => {
@@ -133,10 +180,30 @@ const Turfs = () => {
     const ref = "THB-" + Math.floor(100000 + Math.random() * 900000);
     setBookingReference(ref);
     setBookingStep(4);
+
+    if (bookingTurf && bookingDate && bookingSlot) {
+      const activeBookings = JSON.parse(localStorage.getItem("bookings") || "[]");
+      const newBooking = {
+        reference: ref,
+        turfId: bookingTurf.id,
+        turfName: bookingTurf.name,
+        date: bookingDate,
+        slotTime: bookingSlot.time,
+        playerName: playerDetails.name,
+        playerEmail: playerDetails.email,
+        playerPhone: playerDetails.phone,
+        amount: bookingTurf.pricePerHour * 2 + 3.5, // Total with fee
+        status: "Confirmed",
+        paymentMethod: paymentMethod,
+        timestamp: new Date().toISOString(),
+      };
+      activeBookings.push(newBooking);
+      localStorage.setItem("bookings", JSON.stringify(activeBookings));
+    }
   };
 
   // Filter & Sort Logic
-  const filteredTurfs = turfCatalogData
+  const filteredTurfs = turfs
     .filter((turf) => {
       const matchName = turf.name.toLowerCase().includes(searchTerm.toLowerCase());
       const matchLoc = turf.location.toLowerCase().includes(searchTerm.toLowerCase());
@@ -224,8 +291,9 @@ const Turfs = () => {
                     onClick={() => {
                       setBookingTurf(turf);
                       setBookingStep(1);
+                      setActiveDetailImage(turf.images && turf.images.length > 0 ? turf.images[0] : turf.image);
                     }}
-                    className="group h-full bg-white dark:bg-slate-900/40 backdrop-blur-md border border-slate-200 dark:border-slate-800 hover:border-green-500/40 dark:hover:border-green-500/40 rounded-3xl overflow-hidden shadow-[0_12px_36px_rgba(0,0,0,0.02)] dark:shadow-[0_15px_40px_rgba(0,0,0,0.3)] hover:shadow-[0_20px_50px_rgba(34,197,94,0.08)] transition-all duration-500 flex flex-col justify-between cursor-pointer transform hover:-translate-y-1.5"
+                    className="group h-full bg-white dark:bg-slate-900/40 backdrop-blur-md border border-slate-205 dark:border-slate-800 hover:border-green-500/40 dark:hover:border-green-500/40 rounded-3xl overflow-hidden shadow-[0_12px_36px_rgba(0,0,0,0.02)] dark:shadow-[0_15px_40px_rgba(0,0,0,0.3)] hover:shadow-[0_20px_50px_rgba(34,197,94,0.08)] transition-all duration-500 flex flex-col justify-between cursor-pointer transform hover:-translate-y-1.5"
                   >
                     {/* Image panel */}
                     <div className="relative h-64 w-full overflow-hidden">
@@ -239,6 +307,11 @@ const Turfs = () => {
                       </div>
                       <div className="absolute top-4 left-4 bg-slate-950/80 text-white border border-slate-700 px-4 py-1.5 rounded-full text-xs font-bold uppercase tracking-wider">
                         {turf.sport}
+                      </div>
+                      {/* Owner Badge */}
+                      <div className="absolute bottom-4 left-4 bg-slate-950/80 backdrop-blur-md text-white border border-slate-750 px-3 py-1.5 rounded-xl text-[10px] font-extrabold flex items-center gap-1.5 shadow-md">
+                        <div className="w-1.5 h-1.5 bg-green-500 rounded-full animate-pulse" />
+                        <span>Owner: {getOwnerName(turf.ownerId)}</span>
                       </div>
                     </div>
 
@@ -318,11 +391,11 @@ const Turfs = () => {
             {/* 1. Large Details panel */}
             <div className="bg-white dark:bg-slate-900/40 backdrop-blur-md border border-slate-200 dark:border-slate-800 rounded-3xl p-6 md:p-8 shadow-[0_8px_30px_rgba(0,0,0,0.02)]">
               {/* Photo Preview */}
-              <div className="relative h-96 w-full overflow-hidden rounded-2xl mb-6 border border-slate-100 dark:border-slate-800">
+              <div className="relative h-96 w-full overflow-hidden rounded-2xl mb-4 border border-slate-100 dark:border-slate-800">
                 <img
-                  src={bookingTurf.image}
+                  src={activeDetailImage || bookingTurf.image}
                   alt={bookingTurf.name}
-                  className="w-full h-full object-cover"
+                  className="w-full h-full object-cover transition-all duration-500"
                 />
                 <div className="absolute top-4 right-4 bg-white/95 dark:bg-slate-950/80 backdrop-blur-md border border-slate-200 dark:border-slate-700 text-green-600 dark:text-green-400 font-extrabold px-4 py-2 rounded-full text-sm">
                   ${bookingTurf.pricePerHour}/hr
@@ -330,7 +403,31 @@ const Turfs = () => {
                 <div className="absolute top-4 left-4 bg-slate-950/80 text-white border border-slate-700 px-4 py-2 rounded-full text-xs font-bold uppercase tracking-wider">
                   {bookingTurf.sport}
                 </div>
+                {/* Owner Badge */}
+                <div className="absolute bottom-4 left-4 bg-slate-950/80 backdrop-blur-md text-white border border-slate-750 px-3.5 py-1.5 rounded-xl text-xs font-extrabold flex items-center gap-1.5 shadow-md">
+                  <div className="w-1.5 h-1.5 bg-green-500 rounded-full animate-pulse" />
+                  <span>Owner: {getOwnerName(bookingTurf.ownerId)}</span>
+                </div>
               </div>
+
+              {/* Thumbnails list if multiple images exist */}
+              {bookingTurf.images && bookingTurf.images.length > 1 && (
+                <div className="flex gap-2.5 mb-6 overflow-x-auto pb-2 scrollbar-none">
+                  {bookingTurf.images.map((imgUrl: string, idx: number) => (
+                    <button
+                      key={idx}
+                      onClick={() => setActiveDetailImage(imgUrl)}
+                      className={`relative w-20 aspect-video rounded-lg overflow-hidden border-2 cursor-pointer flex-shrink-0 transition-all ${
+                        (activeDetailImage || bookingTurf.image) === imgUrl
+                          ? "border-green-500 scale-105"
+                          : "border-slate-200 dark:border-slate-800 opacity-60 hover:opacity-100"
+                      }`}
+                    >
+                      <img src={imgUrl} alt="Thumbnail" className="w-full h-full object-cover" />
+                    </button>
+                  ))}
+                </div>
+              )}
 
               <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-6">
                 <div>
@@ -455,7 +552,15 @@ const Turfs = () => {
                         </label>
                         <div className="grid grid-cols-2 gap-3">
                           {TIME_SLOTS.map((slot) => {
-                            const isBooked = MOCK_BOOKED_SLOTS[bookingDate]?.includes(slot.id);
+                            const isBooked =
+                              (MOCK_BOOKED_SLOTS[bookingDate]?.includes(slot.id)) ||
+                              allBookings.some(
+                                (b) =>
+                                  b.turfId === bookingTurf?.id &&
+                                  b.date === bookingDate &&
+                                  b.slotTime === slot.time &&
+                                  b.status === "Confirmed"
+                              );
                             const isSelected = bookingSlot?.id === slot.id;
 
                             return (
