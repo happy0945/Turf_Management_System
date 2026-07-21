@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import logo from "../assets/image.png";
 import { NavLink, Link, useNavigate, useLocation } from "react-router-dom";
-import { FaFutbol, FaSun, FaMoon, FaSignOutAlt, FaChevronDown, FaCalendarCheck } from "react-icons/fa";
+import { FaFutbol, FaSun, FaMoon, FaSignOutAlt, FaChevronDown, FaCalendarCheck, FaUser } from "react-icons/fa";
 import { motion, AnimatePresence } from "framer-motion";
 
 const Navbar = () => {
@@ -9,6 +9,7 @@ const Navbar = () => {
   const [scrolled, setScrolled] = useState(false);
   const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [userName, setUserName] = useState("");
+  const [userRole, setUserRole] = useState("");
   const [showUserDropdown, setShowUserDropdown] = useState(false);
   const [hoveredLink, setHoveredLink] = useState<string | null>(null);
   
@@ -43,8 +44,10 @@ const Navbar = () => {
     const checkAuth = () => {
       const token = localStorage.getItem("userToken");
       const name = localStorage.getItem("userName") || "";
+      const role = localStorage.getItem("userRole") || "";
       setIsLoggedIn(!!token);
       setUserName(name);
+      setUserRole(role);
     };
     checkAuth();
     window.addEventListener("storage", checkAuth);
@@ -83,8 +86,10 @@ const Navbar = () => {
     localStorage.removeItem("userToken");
     localStorage.removeItem("userEmail");
     localStorage.removeItem("userName");
+    localStorage.removeItem("userRole");
     setIsLoggedIn(false);
     setUserName("");
+    setUserRole("");
     setIsOpen(false);
     setShowUserDropdown(false);
     navigate("/");
@@ -241,16 +246,42 @@ const Navbar = () => {
                       exit={{ opacity: 0, y: 10, scale: 0.95 }}
                       className="absolute right-0 mt-2.5 w-52 bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-850 rounded-2xl shadow-2xl p-2 z-[100]"
                     >
-                      <button
-                        onClick={() => {
-                          alert("Bookings page routing mock");
-                          setShowUserDropdown(false);
-                        }}
+                      {userRole === "admin" && (
+                        <Link
+                          to="/admin"
+                          onClick={() => setShowUserDropdown(false)}
+                          className="w-full text-left py-2.5 px-4 text-xs font-bold text-green-500 hover:bg-slate-100 dark:hover:bg-white/5 rounded-xl transition flex items-center gap-2 cursor-pointer"
+                        >
+                          <FaUser className="text-slate-400" />
+                          <span>Admin Dashboard</span>
+                        </Link>
+                      )}
+                      {userRole === "owner" && (
+                        <Link
+                          to="/owner"
+                          onClick={() => setShowUserDropdown(false)}
+                          className="w-full text-left py-2.5 px-4 text-xs font-bold text-green-500 hover:bg-slate-100 dark:hover:bg-white/5 rounded-xl transition flex items-center gap-2 cursor-pointer"
+                        >
+                          <FaUser className="text-slate-400" />
+                          <span>Owner Dashboard</span>
+                        </Link>
+                      )}
+                      <Link
+                        to="/profile"
+                        onClick={() => setShowUserDropdown(false)}
+                        className="w-full text-left py-2.5 px-4 text-xs font-semibold text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-white/5 rounded-xl transition flex items-center gap-2 cursor-pointer"
+                      >
+                        <FaUser className="text-slate-400" />
+                        <span>My Profile</span>
+                      </Link>
+                      <Link
+                        to="/profile"
+                        onClick={() => setShowUserDropdown(false)}
                         className="w-full text-left py-2.5 px-4 text-xs font-semibold text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-white/5 rounded-xl transition flex items-center gap-2 cursor-pointer"
                       >
                         <FaCalendarCheck className="text-slate-400" />
                         <span>My Reservations</span>
-                      </button>
+                      </Link>
                       <button
                         onClick={handleLogout}
                         className="w-full text-left py-2.5 px-4 text-xs font-bold text-red-500 hover:bg-red-550/5 dark:hover:bg-red-500/10 rounded-xl transition flex items-center gap-2 border-t border-slate-100 dark:border-slate-900 mt-1 pt-2 cursor-pointer"
@@ -351,15 +382,38 @@ const Navbar = () => {
                     </div>
                     <span>Hi, {userName}</span>
                   </div>
-                  <button
-                    onClick={() => {
-                      alert("Bookings page routing mock");
-                      setIsOpen(false);
-                    }}
-                    className="w-full text-center text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-white/10 py-2.5 rounded-xl transition cursor-pointer font-semibold bg-slate-50 dark:bg-white/5 text-xs"
+                  {userRole === "admin" && (
+                    <NavLink
+                      to="/admin"
+                      className="w-full text-center text-green-500 border border-green-500/20 py-2.5 rounded-xl transition cursor-pointer font-bold bg-green-505/5 text-xs block"
+                      onClick={() => setIsOpen(false)}
+                    >
+                      Admin Dashboard
+                    </NavLink>
+                  )}
+                  {userRole === "owner" && (
+                    <NavLink
+                      to="/owner"
+                      className="w-full text-center text-green-500 border border-green-500/20 py-2.5 rounded-xl transition cursor-pointer font-bold bg-green-505/5 text-xs block"
+                      onClick={() => setIsOpen(false)}
+                    >
+                      Owner Dashboard
+                    </NavLink>
+                  )}
+                  <NavLink
+                    to="/profile"
+                    className="w-full text-center text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-white/10 py-2.5 rounded-xl transition cursor-pointer font-semibold bg-slate-50 dark:bg-white/5 text-xs block"
+                    onClick={() => setIsOpen(false)}
+                  >
+                    My Profile
+                  </NavLink>
+                  <NavLink
+                    to="/profile"
+                    className="w-full text-center text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-white/10 py-2.5 rounded-xl transition cursor-pointer font-semibold bg-slate-50 dark:bg-white/5 text-xs block"
+                    onClick={() => setIsOpen(false)}
                   >
                     My Reservations
-                  </button>
+                  </NavLink>
                   <button
                     onClick={handleLogout}
                     className="w-full text-center text-red-500 border border-red-500/20 py-2.5 rounded-xl transition cursor-pointer font-bold bg-red-500/5 text-xs"

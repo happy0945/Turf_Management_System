@@ -1,9 +1,30 @@
 
+import { useState, useEffect } from "react";
 import turfData from "./TurfData";
 import TurfCard from "./TurfCard";
 import { motion } from "framer-motion";
 
 const PopularTurf = () => {
+  const [turfList, setTurfList] = useState<any[]>([]);
+
+  useEffect(() => {
+    const loadData = () => {
+      const local = localStorage.getItem("turfCatalogData");
+      if (local) {
+        setTurfList(JSON.parse(local).slice(0, 4));
+      } else {
+        setTurfList(turfData.slice(0, 4));
+      }
+    };
+    loadData();
+    window.addEventListener("storage", loadData);
+    const interval = setInterval(loadData, 2000);
+    return () => {
+      window.removeEventListener("storage", loadData);
+      clearInterval(interval);
+    };
+  }, []);
+
   // Animation variants
   const containerVariants = {
     hidden: {},
@@ -48,7 +69,7 @@ const PopularTurf = () => {
         viewport={{ once: true, margin: "-100px" }}
         className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6 justify-center"
       >
-        {turfData.map((turf) => (
+        {turfList.map((turf) => (
           <motion.div key={turf.id} variants={cardVariants}>
             <TurfCard
               image={turf.image}
@@ -56,6 +77,7 @@ const PopularTurf = () => {
               location={turf.location}
               pricePerHour={turf.pricePerHour}
               rating={turf.rating}
+              ownerId={turf.ownerId}
             />
           </motion.div>
         ))}

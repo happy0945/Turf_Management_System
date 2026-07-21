@@ -1,5 +1,6 @@
 import Tilt from "./Tilt";
 import { FaMapMarkerAlt, FaStar, FaArrowRight } from "react-icons/fa";
+import { Link } from "react-router-dom";
 
 type turfProb = {
   image: string;
@@ -7,12 +8,20 @@ type turfProb = {
   location: string;
   pricePerHour: number;
   rating: number;
+  ownerId?: string;
 };
 
-const TurfCard = ({ image, name, location, pricePerHour, rating }: turfProb) => {
+const getOwnerName = (ownerEmail?: string) => {
+  if (!ownerEmail) return "System Admin";
+  const users = JSON.parse(localStorage.getItem("registeredUsers") || "[]");
+  const matched = users.find((u: any) => u.email.trim().toLowerCase() === ownerEmail.trim().toLowerCase());
+  return matched ? matched.username : "Verified Partner";
+};
+
+const TurfCard = ({ image, name, location, pricePerHour, rating, ownerId }: turfProb) => {
   return (
     <Tilt className="h-full">
-      <div className="group h-full bg-white dark:bg-slate-900/40 backdrop-blur-md border border-slate-200 dark:border-slate-800 hover:border-green-500/30 dark:hover:border-green-500/30 rounded-2xl overflow-hidden shadow-[0_8px_30px_rgba(0,0,0,0.03)] dark:shadow-[0_10px_30px_rgba(0,0,0,0.3)] hover:shadow-[0_15px_30px_rgba(34,197,94,0.06)] dark:hover:shadow-[0_20px_40px_rgba(34,197,94,0.1)] transition-all duration-300 flex flex-col justify-between">
+      <div className="group h-full bg-white dark:bg-slate-900/40 backdrop-blur-md border border-slate-205 dark:border-slate-800 hover:border-green-500/30 dark:hover:border-green-500/30 rounded-2xl overflow-hidden shadow-[0_8px_30px_rgba(0,0,0,0.03)] dark:shadow-[0_10px_30px_rgba(0,0,0,0.3)] hover:shadow-[0_15px_30px_rgba(34,197,94,0.06)] dark:hover:shadow-[0_20px_40px_rgba(34,197,94,0.1)] transition-all duration-300 flex flex-col justify-between">
         
         {/* Image Container with Zoom effect */}
         <div className="relative h-48 w-full overflow-hidden">
@@ -25,8 +34,13 @@ const TurfCard = ({ image, name, location, pricePerHour, rating }: turfProb) => 
           <div className="absolute top-4 right-4 bg-white/90 dark:bg-slate-950/80 backdrop-blur-md border border-slate-200 dark:border-slate-700 text-green-600 dark:text-green-400 font-bold px-3 py-1 rounded-full text-sm">
             ${pricePerHour}/hr
           </div>
+          {/* Owner Badge */}
+          <div className="absolute bottom-4 left-4 bg-slate-950/80 backdrop-blur-md text-white border border-slate-750 px-2.5 py-1 rounded-xl text-[10px] font-extrabold flex items-center gap-1.5 shadow-md">
+            <div className="w-1.5 h-1.5 bg-green-500 rounded-full animate-pulse" />
+            <span>Owner: {getOwnerName(ownerId)}</span>
+          </div>
           {/* Subtle gradient overlay on bottom of image */}
-          <div className="absolute inset-0 bg-gradient-to-t from-slate-950/60 via-transparent to-transparent" />
+          <div className="absolute inset-0 bg-gradient-to-t from-slate-950/60 via-transparent to-transparent -z-10" />
         </div>
 
         {/* Card Details */}
@@ -50,10 +64,10 @@ const TurfCard = ({ image, name, location, pricePerHour, rating }: turfProb) => 
             </div>
 
             {/* Book CTA Action */}
-            <button className="flex items-center gap-1 text-xs font-semibold text-green-600 dark:text-green-400 hover:text-green-500 dark:hover:text-green-300 transition-colors duration-300 cursor-pointer">
+            <Link to="/book-turf" className="flex items-center gap-1 text-xs font-semibold text-green-600 dark:text-green-400 hover:text-green-500 dark:hover:text-green-300 transition-colors duration-300 cursor-pointer">
               Book Turf
               <FaArrowRight className="text-[10px] group-hover:translate-x-1 transition-transform" />
-            </button>
+            </Link>
           </div>
         </div>
 

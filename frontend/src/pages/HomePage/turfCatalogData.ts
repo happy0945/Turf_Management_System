@@ -8,6 +8,8 @@ export interface TurfItem {
   name: string;
   location: string;
   image: string;
+  images?: string[];
+  ownerId?: string;
   rating: number;
   pricePerHour: number;
   sport: "Cricket" | "Football" | "Tennis" | "Basketball" | "Badminton";
