@@ -10,7 +10,8 @@ interface WhatsAppBookingPayload {
   amount: number;
 }
 
-const WHATSAPP_API_URL = `https://graph.facebook.com/v20.0/${process.env.WHATSAPP_PHONE_NUMBER_ID}/messages`;
+const WHATSAPP_API_URL =
+`https://graph.facebook.com/v23.0/${process.env.WHATSAPP_PHONE_NUMBER_ID}/messages`;
 
 export const sendBookingConfirmationWhatsapp = async (
   payload: WhatsAppBookingPayload
@@ -38,8 +39,12 @@ export const sendBookingConfirmationWhatsapp = async (
       }
     );
     return true;
-  } catch (error: any) {
-    console.error("Failed to send WhatsApp message:", error?.response?.data || error.message);
+  } catch (error) {
+    if (axios.isAxiosError(error)) {
+      console.log(error.response?.data);
+    } else {
+      console.log(error);
+    }
     return false;
   }
 };

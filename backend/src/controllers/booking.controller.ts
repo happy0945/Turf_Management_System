@@ -77,6 +77,11 @@ const createBooking = asyncHandler(async (req: Request, res: Response) => {
   }
 
   const validSlots = generateSlots(turf.openingTime, turf.closingTime, turf.slotDuration);
+  console.log("Opening:", turf.openingTime);
+  console.log("Closing:", turf.closingTime);
+  console.log("Duration:", turf.slotDuration);
+  console.log("Generated Slots:", validSlots);
+  console.log("Received Start Time:", body.startTime);
   if (!validSlots.includes(body.startTime)) {
     throw new ApiError(400, "Invalid slot for this turf");
   }
@@ -215,10 +220,6 @@ const verifyPayment = asyncHandler(async (req: Request, res: Response) => {
   return res.status(200).json(new ApiResponse(200, booking, "Booking confirmed successfully"));
 });
 
-// =============== razorpayWebhook ===============
-// Server-to-server safety net in case the user closes the tab right after
-// paying, before the frontend gets to call /bookings/verify. Requires the
-// raw request body — see routes/webhook.routes.ts for the mounting note.
 const razorpayWebhook = asyncHandler(async (req: Request, res: Response) => {
   const signature = req.headers["x-razorpay-signature"] as string;
   const rawBody = req.body.toString();

@@ -147,7 +147,7 @@ const adminRegister = asyncHandler (async (req: Request, res: Response) => {
             emailId,
             password: hashPassword,
             contactNumber,
-            role: "user"
+            role: "admin"
         });
         // generate a JWT token for the newly registered user
         const token = generateAuthToken(user);

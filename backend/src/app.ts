@@ -2,6 +2,8 @@ import express from "express";
 import cookieParser from "cookie-parser";
 import authRouter from "./routes/user.auth.js";
 import turfRouter from "./routes/turf.routes.js";
+import bookingRouter from "./routes/booking.routes.js"
+import webhookRouter from "./routes/webhook.routes.js";
 import { errorHandler } from "./middlewares/error.middleware.js";
 import cors from "cors";
 const app = express();
@@ -12,6 +14,9 @@ app.use(cors({
 }));
 
 // use for decode json data
+
+app.use('/webhooks',webhookRouter)
+
 app.use(express.json());
 // use for decode cookie
 app.use(cookieParser());
@@ -20,6 +25,7 @@ app.use(express.urlencoded({ extended: true }));
 app.use(express.static("public"));
 app.use('/auth',authRouter)
 app.use('/turf',turfRouter)
+app.use('/booking',bookingRouter)
 
 
 // error handler 
