@@ -2,7 +2,7 @@ import { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useNavigate } from "react-router-dom";
 import Tilt from "./Tilt";
-import type { TurfItem } from "./turfCatalogData";
+import type { TurfItem } from "../data/turfCatalogData";
 
 const CATEGORIES = [
   {

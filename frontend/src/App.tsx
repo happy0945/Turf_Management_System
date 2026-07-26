@@ -1,19 +1,19 @@
 
 import { useEffect } from "react";
-import { BrowserRouter, Routes, Route } from "react-router-dom";
+import { BrowserRouter, Route, Routes } from "react-router-dom";
 import "./App.css";
-import Navbar from "./layout/Navbar";
-import About from "./pages/About";
-import Turfs from "./pages/Turfs";
-import BookTurf from "./pages/TurfBook";
-import Contact from "./pages/Contact";
-import Home from "./pages/HomePage/Home";
-import Register from "./features/auth/component/Register";
-import Login from "./features/auth/component/Login";
-import AdminDashboard from "./pages/AdminDashboard";
-import OwnerDashboard from "./pages/OwnerDashboard";
-import ProfilePage from "./pages/ProfilePage";
-import { turfCatalogData } from "./pages/HomePage/turfCatalogData";
+import Login from "./features/auth/pages/Login";
+import Register from "./features/auth/pages/Register";
+import Navbar from "./layouts/Navbar";
+import About from "./features/about/pages/About";
+import AdminDashboard from "./features/admin/pages/AdminDashboard";
+import Contact from "./features/contact/pages/Contact";
+import Home from "./features/home/page/Home";
+import { turfCatalogData } from "./features/home/data/turfCatalogData";
+import OwnerDashboard from "./features/owner/pages/OwnerDashboard";
+import ProfilePage from "./features/profile/pages/ProfilePage";
+import BookTurf from "./features/booking/pages/TurfBook";
+import Turfs from "./features/turf/pages/Turfs";
 
 function App() {
   useEffect(() => {

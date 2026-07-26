@@ -1,6 +1,6 @@
 import { useState } from "react";
-import { FaEnvelope, FaPhoneAlt, FaMapMarkerAlt, FaPaperPlane, FaCheckCircle } from "react-icons/fa";
-import Footer from "../layout/Footer";
+import { FaCheckCircle, FaEnvelope, FaMapMarkerAlt, FaPaperPlane, FaPhoneAlt } from "react-icons/fa";
+import Footer from "../../../layouts/Footer";
 
 const Contact = () => {
   const [formData, setFormData] = useState({

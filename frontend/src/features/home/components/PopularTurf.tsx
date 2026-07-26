@@ -1,6 +1,6 @@
 
 import { useState, useEffect } from "react";
-import turfData from "./TurfData";
+import turfData from "../data/turfData";
 import TurfCard from "./TurfCard";
 import { motion } from "framer-motion";
 

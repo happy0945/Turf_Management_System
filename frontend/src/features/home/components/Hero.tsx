@@ -1,5 +1,5 @@
 
-import cricketBg from "../../assets/cricket-ground.png";
+import cricketBg from "../../../assets/cricket-ground.png";
 import { motion } from "framer-motion";
 import InteractiveCanvas from "./InteractiveCanvas";
 import { FaArrowRight, FaPlay } from "react-icons/fa";

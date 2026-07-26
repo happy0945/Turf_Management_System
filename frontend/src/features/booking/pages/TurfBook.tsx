@@ -14,9 +14,9 @@ import {
   FaSearch,
   FaClipboardList,
 } from "react-icons/fa";
-import { turfCatalogData } from "./HomePage/turfCatalogData";
-import type { TurfItem } from "./HomePage/turfCatalogData";
-import Tilt from "./HomePage/Tilt";
+import { turfCatalogData } from "../../home/data/turfCatalogData";
+import type { TurfItem } from "../../home/data/turfCatalogData";
+import Tilt from "../../home/components/Tilt";
 
 // Generate next 7 days for the slot picker
 const getNext7Days = () => {

@@ -12,7 +12,7 @@ import {
   FaExclamationTriangle,
   FaIdCard,
 } from "react-icons/fa";
-import type { TurfItem } from "./HomePage/turfCatalogData";
+import type { TurfItem } from "../../home/data/turfCatalogData";
 
 interface BookingItem {
   reference: string;

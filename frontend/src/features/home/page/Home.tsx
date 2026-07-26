@@ -1,11 +1,11 @@
-import Footer from "../../layout/Footer";
-import Features from "./Features";
-import Hero from "./Hero";
-import PopularTurf from "./PopularTurf";
-import SportsCategories from "./SportsCategories";
-import HowItWorks from "./HowItWorks";
-import Testimonials from "./Testimonials";
-import FAQ from "./FAQ";
+import Footer from "../../../layouts/Footer";
+import Features from "../components/Features";
+import Hero from "../components/Hero";
+import PopularTurf from "../components/PopularTurf";
+import SportsCategories from "../components/SportsCategories";
+import HowItWorks from "../components/HowItWorks";
+import Testimonials from "../components/Testimonials";
+import FAQ from "../components/FAQ";
 
 const Home = () => {
   return (

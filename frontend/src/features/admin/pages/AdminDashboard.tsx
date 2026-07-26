@@ -13,7 +13,7 @@ import {
   FaBuilding,
 } from "react-icons/fa";
 import { motion, AnimatePresence } from "framer-motion";
-import type { TurfItem } from "./HomePage/turfCatalogData";
+import type { TurfItem } from "../../home/data/turfCatalogData";
 
 interface BookingItem {
   reference: string;

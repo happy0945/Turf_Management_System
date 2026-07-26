@@ -1,19 +1,19 @@
 import { motion } from "framer-motion";
-import aboutBg from "../assets/cricket-ground.png";
-import aboutImage from "../assets/turfImages/turf2.jpg";
-import Footer from "../layout/Footer";
 import { Link } from "react-router-dom";
-import Tilt from "./HomePage/Tilt";
+import aboutBg from "../../../assets/cricket-ground.png";
+import aboutImage from "../../../assets/turfImages/turf2.jpg";
+import Footer from "../../../layouts/Footer";
+import Tilt from "../../home/components/Tilt";
 
 import {
-  FaBullseye,
-  FaCalendarCheck,
-  FaEye,
-  FaFutbol,
-  FaHeadset,
-  FaMapMarkedAlt,
-  FaShieldAlt,
-  FaUsers,
+    FaBullseye,
+    FaCalendarCheck,
+    FaEye,
+    FaFutbol,
+    FaHeadset,
+    FaMapMarkedAlt,
+    FaShieldAlt,
+    FaUsers,
 } from "react-icons/fa";
 
 const About = () => {

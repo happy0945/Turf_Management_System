@@ -1,7 +1,7 @@
-import turfImage1 from "../../assets/turfImages/turf1.jpg";
-import turfImage2 from "../../assets/turfImages/turf2.jpg";
-import turfImage3 from "../../assets/turfImages/turf3.jpg";
-import turfImage4 from "../../assets/turfImages/turf4.jpg";
+import turfImage1 from "../../../assets/turfImages/turf1.jpg";
+import turfImage2 from "../../../assets/turfImages/turf2.jpg";
+import turfImage3 from "../../../assets/turfImages/turf3.jpg";
+import turfImage4 from "../../../assets/turfImages/turf4.jpg";
 
 export interface TurfItem {
   id: number;
