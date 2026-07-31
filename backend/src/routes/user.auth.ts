@@ -1,18 +1,22 @@
-
 import express from "express";
-import {registerUser, loginUser, logoutUser,adminRegister, deleteProfile } from "../controllers/user.controller.js";
+import { registerUser, loginUser, logoutUser, adminRegister, registerOwner, deleteProfile, getProfile, updateProfile } from "../controllers/user.controller.js";
 import userMiddleware from "../middlewares/user.middleware.js";
 import adminMiddleware from "../middlewares/admin.middleware.js";
 
 const authRouter = express.Router();
 
-
-// User Authentication Router
-authRouter.post("/register",registerUser);
+// ─── Public routes ────────────────────────────────────────────────────────────
+authRouter.post("/register", registerUser);
 authRouter.post("/login", loginUser);
-authRouter.post("/logout",userMiddleware,logoutUser)
-authRouter.post("/admin/register",userMiddleware,adminMiddleware,adminRegister);
-authRouter.delete('/delete',userMiddleware,adminMiddleware,deleteProfile)
 
+// ─── Protected routes ─────────────────────────────────────────────────────────
+authRouter.post("/logout", userMiddleware, logoutUser);
+authRouter.get("/profile", userMiddleware, getProfile);
+authRouter.patch("/profile", userMiddleware, updateProfile);
 
-export default authRouter
+// ─── Admin-only routes ────────────────────────────────────────────────────────
+authRouter.post("/admin/register", userMiddleware, adminMiddleware, adminRegister);
+authRouter.post("/owner/register", userMiddleware, adminMiddleware, registerOwner);
+authRouter.delete('/delete', userMiddleware, adminMiddleware, deleteProfile);
+
+export default authRouter;

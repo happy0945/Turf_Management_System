@@ -3,7 +3,7 @@ import bcrypt from 'bcrypt';
 import User from '../models/user.model.js';
 import generateAuthToken from '../utils/generateAuthToken.js';
 import validate from "../utils/validator/user.validator.js";
-import jwt, { JwtPayload } from "jsonwebtoken"
+import jwt, { JwtPayload } from "jsonwebtoken";
 import { ApiError } from '../utils/ApiError.js';
 import { ApiResponse } from '../utils/ApirResponse.js';
 import { asyncHandler } from '../utils/asyncHandler.js';
@@ -14,15 +14,23 @@ const registerUser = asyncHandler (async (req: Request, res: Response) => {
         
         // validate request body
         validate(req.body);
-        console.log(req.body);
         
         const { fullName, emailId, password, contactNumber } = req.body;
 
-        // check if user already exist
-        const existingUser = await User.findOne({emailId})
-        if(existingUser){
-            throw new ApiError(409,"Email Already exist");
+        // check if email or contact number already exists
+        const existingUser = await User.findOne({
+            $or: [{ emailId }, { contactNumber }]
+        });
+
+        if (existingUser) {
+            if (existingUser.emailId === emailId.trim().toLowerCase()) {
+                throw new ApiError(409, "Email is already registered. Please login.");
+            }
+            if (existingUser.contactNumber === contactNumber) {
+                throw new ApiError(409, "Contact number is already registered to another account.");
+            }
         }
+
         const hashPassword = await bcrypt.hash(password, 10);
         const user = await User.create({
             fullName,
@@ -39,17 +47,19 @@ const registerUser = asyncHandler (async (req: Request, res: Response) => {
                 fullName: user.fullName,
                 emailId: user.emailId,
                 contactNumber: user.contactNumber,
+                role: user.role,
+                avatar: user.avatar,
             }
         
         // set the token in a cookie and send the response
-        res.cookie('token',token, {maxAge: 60*60*1000});
+        res.cookie('token',token, {maxAge: 60*60*1000, httpOnly: true, sameSite: 'lax'});
         res.status(201).json(
             new ApiResponse(
                 201,{
                     user:reply,
                     token
                 },
-                "User register Successfully"
+                "User registered successfully"
             )
         );
 
@@ -58,9 +68,6 @@ const registerUser = asyncHandler (async (req: Request, res: Response) => {
 //  =============== Login ===================
 const loginUser = asyncHandler (async (req:Request,res:Response)=>{
     
-
-        validate(req.body);
-        
         const { emailId, password } = req.body;
 
         if (!emailId || !password) {
@@ -70,13 +77,13 @@ const loginUser = asyncHandler (async (req:Request,res:Response)=>{
         const user = await User.findOne({ emailId });
 
         if (!user) {
-            throw new ApiError(401,"Invalid Credentials")
+            throw new ApiError(401,"Invalid credentials. User not found.")
         }
 
         const isPasswordValid = await bcrypt.compare(password, user.password);
 
         if(!isPasswordValid) {
-            throw new ApiError(409,"Invalid Credentials")
+            throw new ApiError(401,"Invalid credentials. Wrong password.")
         }
         // set the token in a cookie and send the response
         const token = generateAuthToken(user);
@@ -86,9 +93,11 @@ const loginUser = asyncHandler (async (req:Request,res:Response)=>{
             fullName: user.fullName,
             emailId: user.emailId,
             contactNumber: user.contactNumber,
+            role: user.role,
+            avatar: user.avatar,
         };
         
-        res.cookie('token',token, {maxAge: 60*60*1000});
+        res.cookie('token',token, {maxAge: 60*60*1000, httpOnly: true, sameSite: 'lax'});
 
         res.status(200).json(
             new ApiResponse(
@@ -97,7 +106,7 @@ const loginUser = asyncHandler (async (req:Request,res:Response)=>{
                     user:reply,
                     token
                 },
-                "User Login Successfully"
+                "User logged in successfully"
             )
         );
 
@@ -106,27 +115,84 @@ const loginUser = asyncHandler (async (req:Request,res:Response)=>{
 // =============== logoutUser ================
 const logoutUser = asyncHandler (async(req:Request, res:Response)=>{
 
-    const {token} = req.cookies;
-    if(!token)
-        throw new ApiError(404,"Token not Present");
-    const payload = jwt.verify(
-        token,
-        process.env.JWT_SECRET!
-    ) as JwtPayload;
-
-    if (typeof payload.exp !== 'number') {
-        throw new ApiError(400, 'Invalid token expiry');
+    // Support both cookie token and Bearer header token
+    let token: string | undefined = req.cookies?.token;
+    if (!token) {
+        const authHeader = req.headers.authorization;
+        if (authHeader && authHeader.startsWith("Bearer ")) {
+            token = authHeader.split(" ")[1];
+        }
     }
 
-    // set token in redis client (use consistent key)
-    await redisClient.set(`token:${token}`, 'Blocked');
-    await redisClient.expireAt(`token:${token}`, payload.exp);
+    if(!token)
+        throw new ApiError(400,"No active session found");
+
+    try {
+        const payload = jwt.verify(
+            token,
+            process.env.JWT_SECRET!
+        ) as JwtPayload;
+
+        if (typeof payload.exp === 'number') {
+            await redisClient.set(`token:${token}`, 'Blocked');
+            await redisClient.expireAt(`token:${token}`, payload.exp);
+        }
+    } catch {
+        // Token might be expired already, that's fine
+    }
 
     // clear cookie and send response
-    res.cookie("token",null,{expires: new Date(Date.now())});
-    // res.clearCookie('token');
-    res.status(200).json(new ApiResponse(200, null, 'User logged out successfully'));
+    res.clearCookie('token');
+    res.status(200).json(new ApiResponse(200, null, 'Logged out successfully'));
 
+})
+
+// =============== getProfile ================
+const getProfile = asyncHandler (async(req:Request, res:Response)=>{
+    const user = req.user;
+    if(!user) throw new ApiError(401, "Not authenticated");
+
+    const profile = {
+        _id: user._id,
+        fullName: user.fullName,
+        emailId: user.emailId,
+        contactNumber: user.contactNumber,
+        role: user.role,
+        avatar: user.avatar,
+    };
+
+    res.status(200).json(new ApiResponse(200, profile, "Profile fetched successfully"));
+})
+
+// =============== updateProfile ================
+const updateProfile = asyncHandler (async(req:Request, res:Response)=>{
+    const user = req.user;
+    if(!user) throw new ApiError(401, "Not authenticated");
+
+    const { fullName, contactNumber, avatar } = req.body;
+
+    // Check if new contact number is already used by another user
+    if (contactNumber && contactNumber !== user.contactNumber) {
+        const existingContact = await User.findOne({
+            contactNumber,
+            _id: { $ne: user._id }
+        });
+        if (existingContact) {
+            throw new ApiError(409, "Contact number is already registered to another account.");
+        }
+    }
+
+    const updatedUser = await User.findByIdAndUpdate(
+        user._id,
+        {
+            ...(fullName && { fullName }),
+            ...(contactNumber && { contactNumber }),
+            ...(avatar && { avatar }),
+        },
+        { new: true, select: '-password' }
+    );
+
+    res.status(200).json(new ApiResponse(200, updatedUser, "Profile updated successfully"));
 })
 
 const adminRegister = asyncHandler (async (req: Request, res: Response) => {
@@ -137,9 +203,11 @@ const adminRegister = asyncHandler (async (req: Request, res: Response) => {
         const { fullName, emailId, password, contactNumber } = req.body;
 
         // check if user already exist
-        const existingUser = await User.findOne({emailId})
+        const existingUser = await User.findOne({
+            $or: [{ emailId }, { contactNumber }]
+        });
         if(existingUser){
-            throw new ApiError(409,"User Already exist");
+            throw new ApiError(409,"Email or contact number already registered");
         }
         const hashPassword = await bcrypt.hash(password, 10);
         const user = await User.create({
@@ -157,17 +225,18 @@ const adminRegister = asyncHandler (async (req: Request, res: Response) => {
                 fullName: user.fullName,
                 emailId: user.emailId,
                 contactNumber: user.contactNumber,
+                role: user.role,
             }
         
         // set the token in a cookie and send the response
-        res.cookie('token',token, {maxAge: 60*60*1000});
+        res.cookie('token',token, {maxAge: 60*60*1000, httpOnly: true, sameSite: 'lax'});
         res.status(201).json(
             new ApiResponse(
                 201,{
                     user:reply,
                     token
                 },
-                "Admin register Successfully"
+                "Admin registered successfully"
             )
         );
 
@@ -176,18 +245,45 @@ const adminRegister = asyncHandler (async (req: Request, res: Response) => {
 const deleteProfile = asyncHandler (async (req: Request, res: Response)=>{
 
     const userId = req.user?._id;
-
     await User.findByIdAndDelete(userId)
-    res.send(200).json(
+    res.status(200).json(
         new ApiResponse(
-            201,
-            "Profile Deleted Successfully"
+            200,
+            null,
+            "Profile deleted successfully"
         )
     )
-
-
 })
 
+// =============== registerOwner (admin creates an owner account) ================
+const registerOwner = asyncHandler(async (req: Request, res: Response) => {
+    validate(req.body);
+    const { fullName, emailId, password, contactNumber } = req.body;
 
+    const existingUser = await User.findOne({ $or: [{ emailId }, { contactNumber }] });
+    if (existingUser) {
+        throw new ApiError(409, "Email or contact number already registered");
+    }
+    const hashPassword = await bcrypt.hash(password, 10);
+    const user = await User.create({
+        fullName,
+        emailId,
+        password: hashPassword,
+        contactNumber,
+        role: "owner",
+    });
+    const token = generateAuthToken(user);
+    const reply = {
+        _id: user._id,
+        fullName: user.fullName,
+        emailId: user.emailId,
+        contactNumber: user.contactNumber,
+        role: user.role,
+    };
+    res.cookie('token', token, { maxAge: 60 * 60 * 1000, httpOnly: true, sameSite: 'lax' });
+    res.status(201).json(
+        new ApiResponse(201, { user: reply, token }, "Owner registered successfully")
+    );
+});
 
-export { registerUser, loginUser,logoutUser,adminRegister,deleteProfile };
+export { registerUser, loginUser, logoutUser, adminRegister, registerOwner, deleteProfile, getProfile, updateProfile };

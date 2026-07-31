@@ -56,7 +56,7 @@ const createTurf = asyncHandler(async (req: Request, res: Response) => {
 // =============== getAllTurf ===============
 const getAllTurf = asyncHandler(async(req:Request, res:Response)=>{
      const turfs = await Turf.find({ status: "active" })
-        .select("owner turfName location sportsType pricePerSlot rating images")
+        .select("owner turfName description location sportsType pricePerSlot slotDuration openingTime closingTime rating images amenities status")
         .sort({ createdAt: -1 })
         .lean();
 
@@ -66,6 +66,20 @@ const getAllTurf = asyncHandler(async(req:Request, res:Response)=>{
             turfs,
             "Turfs fetched successfully."
         )
+    );
+})
+
+// =============== getMyTurfs (Owner only) ===============
+const getMyTurfs = asyncHandler(async(req:Request, res:Response)=>{
+    const ownerId = req.user!._id;
+
+    const turfs = await Turf.find({ owner: ownerId })
+        .select("owner turfName description location sportsType pricePerSlot slotDuration openingTime closingTime rating images amenities status")
+        .sort({ createdAt: -1 })
+        .lean();
+
+    return res.status(200).json(
+        new ApiResponse(200, turfs, "Your turfs fetched successfully.")
     );
 })
 // =============== getTurfById ================
@@ -219,4 +233,4 @@ const deleteTurf = asyncHandler(async (req:Request,res:Response)=>{
 
 
 
-export {createTurf,getAllTurf, getTurfById,updateTurf,deleteTurf,updateStatus}
+export {createTurf,getAllTurf,getMyTurfs, getTurfById,updateTurf,deleteTurf,updateStatus}

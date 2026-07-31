@@ -211,6 +211,7 @@ const verifyPayment = asyncHandler(async (req: Request, res: Response) => {
       startTime: booking.startTime,
       endTime: booking.endTime,
       amount: booking.totalAmount,
+      bookingId: String(booking._id),
     }).catch(() => false),
   ]);
 
