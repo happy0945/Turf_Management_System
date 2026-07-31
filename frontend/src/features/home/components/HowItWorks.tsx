@@ -91,7 +91,7 @@ const HowItWorks = () => {
             <h3 className="text-xl font-bold text-slate-800 dark:text-white mb-3">
               {step.title}
             </h3>
-            <p className="text-slate-400 dark:text-slate-500 text-sm leading-relaxed max-w-xs">
+            <p className="text-slate-500 dark:text-slate-400 text-sm leading-relaxed max-w-xs">
               {step.description}
             </p>
           </motion.div>

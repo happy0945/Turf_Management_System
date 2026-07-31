@@ -215,7 +215,7 @@ const About = () => {
       {/* Ready To Play Call to Action */}
       <section className="py-24 max-w-4xl mx-auto text-center px-6">
         <div className="bg-white dark:bg-slate-900/40 border border-slate-200 dark:border-slate-800 p-12 rounded-3xl shadow-[0_12px_40px_rgba(0,0,0,0.02)]">
-          <h2 className="text-3xl md:text-5xl font-black text-slate-805 dark:text-white">
+          <h2 className="text-3xl md:text-5xl font-black text-slate-800 dark:text-white">
             Ready to Play?
           </h2>
           <p className="mt-4 text-slate-500 dark:text-slate-400 text-sm max-w-md mx-auto leading-relaxed">

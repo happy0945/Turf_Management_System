@@ -1,3 +1,1 @@
-@import "tailwindcss";
-
-@custom-variant dark (&:where(.dark, .dark *));
+/* App.css — additional global styles (Tailwind is already imported in index.css) */

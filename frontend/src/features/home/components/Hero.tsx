@@ -3,6 +3,7 @@ import cricketBg from "../../../assets/cricket-ground.png";
 import { motion } from "framer-motion";
 import InteractiveCanvas from "./InteractiveCanvas";
 import { FaArrowRight, FaPlay } from "react-icons/fa";
+import { Link } from "react-router-dom";
 
 const Hero = () => {
   // Animation Variants
@@ -89,21 +90,23 @@ const Hero = () => {
           variants={itemVariants}
           className="mt-10 flex flex-wrap gap-4 justify-center"
         >
-          <button
+          <Link
+            to="/book-turf"
             className="group flex items-center gap-2 bg-gradient-to-r from-green-500 to-emerald-600 hover:from-green-600 hover:to-emerald-700 text-white font-bold py-3.5 px-8 rounded-xl shadow-[0_4px_20px_rgba(34,197,94,0.3)] hover:shadow-[0_4px_30px_rgba(34,197,94,0.5)] transition-all duration-300 hover:translate-y-[-2px] active:translate-y-0 cursor-pointer"
           >
             <span>Book Now</span>
             <FaArrowRight className="text-sm group-hover:translate-x-1 transition-transform" />
-          </button>
+          </Link>
 
-          <button
+          <Link
+            to="/turfs"
             className="group flex items-center gap-2 bg-white/5 border border-white/10 hover:border-white/20 text-white font-bold py-3.5 px-8 rounded-xl backdrop-blur-md transition-all duration-300 hover:translate-y-[-2px] active:translate-y-0 hover:bg-white/10 cursor-pointer"
           >
             <div className="w-5 h-5 rounded-full bg-green-500/20 flex items-center justify-center text-green-400 text-xs group-hover:bg-green-500 group-hover:text-white transition-all">
               <FaPlay className="ml-0.5 text-[8px]" />
             </div>
             <span>Explore Turfs</span>
-          </button>
+          </Link>
         </motion.div>
 
         {/* Horizontal Stats */}

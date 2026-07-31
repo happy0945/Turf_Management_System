@@ -4,6 +4,7 @@ import { useForm } from "react-hook-form";
 import { yupResolver } from "@hookform/resolvers/yup";
 import * as yup from "yup";
 import { FaEnvelope, FaLock, FaCheckCircle } from "react-icons/fa";
+import { useAuth } from "../../../context/AuthContext";
 
 const schema = yup.object({
   email: yup
@@ -23,6 +24,7 @@ const Login = () => {
   const [loading, setLoading] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
   const navigate = useNavigate();
+  const { login } = useAuth();
 
   const {
     register,
@@ -35,40 +37,23 @@ const Login = () => {
 
   const onSubmit = async (data: LoginFormData) => {
     setFormError(null);
+    setLoading(true);
     try {
-      setLoading(true);
+      const { role } = await login(data.email, data.password);
 
-      // Simulate API call
-      await new Promise((resolve) => setTimeout(resolve, 1500));
-
-      const users = JSON.parse(localStorage.getItem("registeredUsers") || "[]");
-      const matchedUser = users.find((u: any) => u.email.trim().toLowerCase() === data.email.trim().toLowerCase());
-
-      if (!matchedUser) {
-        setFormError("Account does not exist. Please register first.");
-        return;
-      }
-
-      if (matchedUser.password !== data.password) {
-        setFormError("Incorrect password. Please try again.");
-        return;
-      }
-
-      localStorage.setItem("userToken", "mock-session-jwt-token-12345");
-      localStorage.setItem("userEmail", matchedUser.email);
-      localStorage.setItem("userName", matchedUser.username);
-      localStorage.setItem("userRole", matchedUser.role || "customer");
-
-      // Redirect to correct dashboard based on role
-      if (matchedUser.role === "admin") {
+      // Redirect based on role
+      if (role === "admin") {
         navigate("/admin");
-      } else if (matchedUser.role === "owner") {
+      } else if (role === "owner") {
         navigate("/owner");
       } else {
-        navigate("/book-turf");
+        navigate("/turfs");
       }
-    } catch (error) {
-      console.log(error);
+    } catch (error: any) {
+      const msg =
+        error?.response?.data?.message ||
+        "Login failed. Please check your credentials.";
+      setFormError(msg);
     } finally {
       setLoading(false);
     }
@@ -109,7 +94,7 @@ const Login = () => {
                 }`}
                 {...register("email")}
               />
-              <div className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-455">
+              <div className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400">
                 <FaEnvelope />
               </div>
             </div>
@@ -137,7 +122,7 @@ const Login = () => {
                 }`}
                 {...register("password")}
               />
-              <div className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-455">
+              <div className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400">
                 <FaLock />
               </div>
             </div>

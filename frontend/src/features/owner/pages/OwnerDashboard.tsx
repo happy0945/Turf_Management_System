@@ -1,402 +1,405 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import {
   FaCheckCircle,
   FaExclamationTriangle,
-  FaTimesCircle,
   FaBuilding,
-  FaDollarSign,
+  FaRupeeSign,
   FaBookOpen,
   FaImage,
   FaTrash,
   FaPlus,
   FaUpload,
   FaCalendarAlt,
+  FaEdit,
+  FaTimes,
+  FaToggleOn,
+  FaToggleOff,
+  FaChartBar,
+  FaSpinner,
 } from "react-icons/fa";
-import { AnimatePresence } from "framer-motion";
-import type { TurfItem } from "../../home/data/turfCatalogData";
+import { useAuth } from "../../../context/AuthContext";
+import { ownerTurfService } from "../../../services/ownerTurfService";
+import type { Turf } from "../../../services/turfService";
+import axiosInstance from "../../../lib/axios";
 
-interface BookingItem {
-  reference: string;
-  turfId: number;
-  turfName: string;
-  date: string;
-  slotTime: string;
-  playerName: string;
-  playerEmail: string;
-  playerPhone: string;
-  amount: number;
+// ─── Types ───────────────────────────────────────────────────────────────────
+interface OwnerBooking {
+  _id: string;
+  user: { fullName: string; emailId: string; contactNumber: string };
+  turfId: { turfName: string };
+  bookingDate: string;
+  startTime: string;
+  endTime: string;
+  totalAmount: number;
   status: string;
-  paymentMethod: string;
-  timestamp: string;
+  paymentStatus: string;
 }
 
-interface UserItem {
-  username: string;
-  email: string;
-  contactNumber: string;
-  role: "customer" | "owner" | "admin";
-  status: "Verified" | "Pending" | "Rejected";
-  ownedTurfId?: number;
-  businessName?: string;
-  businessAddress?: string;
-  licenseNumber?: string;
-}
+// ─── Helper: toast ────────────────────────────────────────────────────────────
+const Toast = ({
+  msg,
+  type,
+  onClose,
+}: {
+  msg: string;
+  type: "success" | "error";
+  onClose: () => void;
+}) => (
+  <div
+    className={`fixed bottom-6 right-6 z-[9999] flex items-center gap-3 px-5 py-3.5 rounded-2xl shadow-2xl text-white text-sm font-semibold backdrop-blur-md animate-in slide-in-from-bottom-4 duration-300 ${
+      type === "success"
+        ? "bg-green-600/90 border border-green-400/30"
+        : "bg-red-600/90 border border-red-400/30"
+    }`}
+  >
+    {type === "success" ? <FaCheckCircle /> : <FaExclamationTriangle />}
+    <span>{msg}</span>
+    <button onClick={onClose} className="ml-2 opacity-70 hover:opacity-100 cursor-pointer">
+      <FaTimes />
+    </button>
+  </div>
+);
 
+// ─── Stat Card ────────────────────────────────────────────────────────────────
+const StatCard = ({
+  icon: Icon,
+  label,
+  value,
+  color,
+}: {
+  icon: React.ElementType;
+  label: string;
+  value: string | number;
+  color: string;
+}) => (
+  <div className="bg-white dark:bg-slate-900/50 border border-slate-200 dark:border-slate-800 rounded-2xl p-5 flex items-center gap-4 shadow-sm">
+    <div className={`p-3 rounded-xl ${color} text-white text-xl`}>
+      <Icon />
+    </div>
+    <div>
+      <p className="text-[11px] text-slate-400 font-bold uppercase tracking-wider">{label}</p>
+      <p className="text-xl font-black text-slate-800 dark:text-white">{value}</p>
+    </div>
+  </div>
+);
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// Main Component
+// ═══════════════════════════════════════════════════════════════════════════════
 const OwnerDashboard = () => {
   const navigate = useNavigate();
+  const { user, isLoggedIn, isLoading: authLoading } = useAuth();
 
-  // Logged-in owner info
-  const [ownerUser, setOwnerUser] = useState<UserItem | null>(null);
-  const [myTurfs, setMyTurfs] = useState<TurfItem[]>([]);
-  const [selectedTurf, setSelectedTurf] = useState<TurfItem | null>(null);
-  const [bookings, setBookings] = useState<BookingItem[]>([]);
-  const [showAddTurfModal, setShowAddTurfModal] = useState(false);
+  const [myTurfs, setMyTurfs] = useState<Turf[]>([]);
+  const [selectedTurf, setSelectedTurf] = useState<Turf | null>(null);
+  const [bookings, setBookings] = useState<OwnerBooking[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
 
-  // Turf editing form state
-  const [turfForm, setTurfForm] = useState({
-    name: "",
-    location: "",
-    pricePerHour: 50,
-    sport: "Cricket" as TurfItem["sport"],
+  const [toast, setToast] = useState<{ msg: string; type: "success" | "error" } | null>(null);
+  const showToast = (msg: string, type: "success" | "error" = "success") => {
+    setToast({ msg, type });
+    setTimeout(() => setToast(null), 4000);
+  };
+
+  // ── Modals ──────────────────────────────────────────────────────────────────
+  const [showAddModal, setShowAddModal] = useState(false);
+  const [showEditModal, setShowEditModal] = useState(false);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+
+  // ── Add Turf Form ───────────────────────────────────────────────────────────
+  const [addForm, setAddForm] = useState({
+    turfName: "",
+    description: "",
+    address: "",
+    city: "",
+    latitude: "",
+    longitude: "",
+    openingTime: "06:00",
+    closingTime: "22:00",
+    slotDuration: 60,
+    pricePerSlot: 500,
+    sportsType: "Football",
+    amenities: "Floodlights, Drinking Water",
+  });
+  const [addImages, setAddImages] = useState<File[]>([]);
+  const [addImagePreviews, setAddImagePreviews] = useState<string[]>([]);
+  const addFileRef = useRef<HTMLInputElement>(null);
+
+  // ── Edit Turf Form ──────────────────────────────────────────────────────────
+  const [editForm, setEditForm] = useState({
+    turfName: "",
+    description: "",
+    address: "",
+    city: "",
+    openingTime: "",
+    closingTime: "",
+    slotDuration: 60,
+    pricePerSlot: 500,
+    sportsType: "",
     amenities: "",
   });
+  const [editImages, setEditImages] = useState<File[]>([]);
+  const editFileRef = useRef<HTMLInputElement>(null);
 
-  // Add new turf form state
-  const [newTurfFormData, setNewTurfFormData] = useState({
-    name: "",
-    location: "",
-    pricePerHour: 50,
-    sport: "Cricket" as TurfItem["sport"],
-    amenities: "Drinking Water, Floodlights",
-  });
-
-  const [uploadedRegisterImages, setUploadedRegisterImages] = useState<string[]>([]);
-
-  // Multiple images state
-  const [imageList, setImageList] = useState<string[]>([]);
-  const [newImageUrl, setNewImageUrl] = useState("");
-
+  // ── Auth Guard ──────────────────────────────────────────────────────────────
   useEffect(() => {
-    // 1. Auth check
-    const token = localStorage.getItem("userToken");
-    const role = localStorage.getItem("userRole");
-    const email = localStorage.getItem("userEmail");
-
-    if (!token || role !== "owner" || !email) {
-      alert("Unauthorized Access. Turf Owner credentials required.");
+    if (authLoading) return;
+    if (!isLoggedIn || !user) {
       navigate("/login");
       return;
     }
+    if (user.role !== "owner" && user.role !== "admin") {
+      showToast("Access denied. Owner account required.", "error");
+      navigate("/");
+      return;
+    }
+    // Load data
+    loadDashboard();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isLoggedIn, user, authLoading]);
 
-    // 2. Fetch owner user record
-    const loadedUsers: UserItem[] = JSON.parse(localStorage.getItem("registeredUsers") || "[]");
-    const matchedOwner = loadedUsers.find((u) => u.email.trim().toLowerCase() === email.trim().toLowerCase());
-
-    if (matchedOwner) {
-      setOwnerUser(matchedOwner);
-
-      // Fetch turfs
-      const loadedTurfs: TurfItem[] = JSON.parse(localStorage.getItem("turfCatalogData") || "[]");
-      const filteredMyTurfs = loadedTurfs.filter((t) => (t.ownerId && t.ownerId.trim().toLowerCase() === email.trim().toLowerCase()) || t.id === matchedOwner.ownedTurfId);
-      setMyTurfs(filteredMyTurfs);
-
-      const initialTurf = filteredMyTurfs.find((t) => t.id === matchedOwner.ownedTurfId) || filteredMyTurfs[0] || null;
-      if (initialTurf) {
-        setSelectedTurf(initialTurf);
-        setTurfForm({
-          name: initialTurf.name,
-          location: initialTurf.location,
-          pricePerHour: initialTurf.pricePerHour,
-          sport: initialTurf.sport,
-          amenities: initialTurf.amenities.join(", "),
-        });
-        setImageList(initialTurf.images || [initialTurf.image]);
+  const loadDashboard = async () => {
+    setLoading(true);
+    try {
+      const turfs = await ownerTurfService.getMyTurfs();
+      setMyTurfs(turfs);
+      if (turfs.length > 0) {
+        setSelectedTurf(turfs[0]);
+        await loadBookingsForTurf(turfs[0]._id);
       }
-
-      // Fetch bookings for ALL of my turfs
-      const myTurfIds = filteredMyTurfs.map((t) => t.id);
-      const loadedBookings: BookingItem[] = JSON.parse(localStorage.getItem("bookings") || "[]");
-      const turfBookings = loadedBookings.filter((b) => myTurfIds.includes(b.turfId));
-      setBookings(turfBookings);
-    }
-  }, [navigate]);
-
-  const handleSelectTurfChange = (id: number) => {
-    const matched = myTurfs.find((t) => t.id === id);
-    if (matched) {
-      setSelectedTurf(matched);
-      setTurfForm({
-        name: matched.name,
-        location: matched.location,
-        pricePerHour: matched.pricePerHour,
-        sport: matched.sport,
-        amenities: matched.amenities.join(", "),
-      });
-      setImageList(matched.images || [matched.image]);
+    } catch {
+      showToast("Failed to load your turfs.", "error");
+    } finally {
+      setLoading(false);
     }
   };
 
-  // Handle local image file uploads and read them as Base64 strings
-  const handleLocalImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const files = e.target.files;
-    if (!files) return;
-
-    if (imageList.length + files.length > 20) {
-      alert("Error: You can upload a maximum of 20 images. (Currently have " + imageList.length + ")");
-      return;
+  const loadBookingsForTurf = async (turfId: string) => {
+    try {
+      const res = await axiosInstance.get(`/booking/turf/${turfId}`);
+      setBookings(res.data.data || []);
+    } catch {
+      setBookings([]);
     }
-
-    for (let i = 0; i < files.length; i++) {
-      const file = files[i];
-      const reader = new FileReader();
-      reader.onload = (uploadEvent) => {
-        const base64Url = uploadEvent.target?.result as string;
-        if (base64Url) {
-          setImageList((prev) => {
-            const updated = [...prev, base64Url];
-            // Auto save to database
-            saveImagesToDatabase(updated);
-            return updated;
-          });
-        }
-      };
-      reader.readAsDataURL(file);
-    }
-    e.target.value = ""; // reset input file value
   };
 
-  const handleRegisterImagesUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const files = e.target.files;
-    if (!files) return;
+  const handleSelectTurf = async (turf: Turf) => {
+    setSelectedTurf(turf);
+    await loadBookingsForTurf(turf._id);
+  };
 
-    if (uploadedRegisterImages.length + files.length > 20) {
-      alert("Error: You can upload a maximum of 20 images.");
+  // ── Add Images ──────────────────────────────────────────────────────────────
+  const handleAddImageSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files || []);
+    if (addImages.length + files.length > 6) {
+      showToast("Maximum 6 images allowed.", "error");
       return;
     }
-
-    for (let i = 0; i < files.length; i++) {
-      const file = files[i];
+    setAddImages((prev) => [...prev, ...files]);
+    files.forEach((f) => {
       const reader = new FileReader();
-      reader.onload = (uploadEvent) => {
-        const base64Url = uploadEvent.target?.result as string;
-        if (base64Url) {
-          setUploadedRegisterImages((prev) => {
-            if (prev.length >= 20) return prev;
-            return [...prev, base64Url];
-          });
-        }
-      };
-      reader.readAsDataURL(file);
-    }
+      reader.onload = (ev) =>
+        setAddImagePreviews((prev) => [...prev, ev.target?.result as string]);
+      reader.readAsDataURL(f);
+    });
     e.target.value = "";
   };
 
-  // Add external image URL
-  const handleAddImageUrl = (e: React.FormEvent) => {
+  const removeAddImage = (i: number) => {
+    setAddImages((prev) => prev.filter((_, idx) => idx !== i));
+    setAddImagePreviews((prev) => prev.filter((_, idx) => idx !== i));
+  };
+
+  // ── Add Turf Submit ─────────────────────────────────────────────────────────
+  const handleAddTurf = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (imageList.length >= 20) {
-      alert("Error: You can add a maximum of 20 images.");
+    if (addImages.length === 0) {
+      showToast("Upload at least 1 image.", "error");
       return;
     }
-    if (newImageUrl.trim()) {
-      setImageList((prev) => {
-        const updated = [...prev, newImageUrl.trim()];
-        saveImagesToDatabase(updated);
-        return updated;
+    setSaving(true);
+    try {
+      const newTurf = await ownerTurfService.createTurf({
+        turfName: addForm.turfName,
+        description: addForm.description,
+        address: addForm.address,
+        city: addForm.city,
+        latitude: parseFloat(addForm.latitude) || 0,
+        longitude: parseFloat(addForm.longitude) || 0,
+        openingTime: addForm.openingTime,
+        closingTime: addForm.closingTime,
+        slotDuration: Number(addForm.slotDuration),
+        pricePerSlot: Number(addForm.pricePerSlot),
+        sportsType: addForm.sportsType.split(",").map((s) => s.trim()).filter(Boolean),
+        amenities: addForm.amenities.split(",").map((a) => a.trim()).filter(Boolean),
+        images: addImages,
       });
-      setNewImageUrl("");
+      const updated = [newTurf, ...myTurfs];
+      setMyTurfs(updated);
+      setSelectedTurf(newTurf);
+      await loadBookingsForTurf(newTurf._id);
+      setShowAddModal(false);
+      setAddImages([]);
+      setAddImagePreviews([]);
+      setAddForm({
+        turfName: "",
+        description: "",
+        address: "",
+        city: "",
+        latitude: "",
+        longitude: "",
+        openingTime: "06:00",
+        closingTime: "22:00",
+        slotDuration: 60,
+        pricePerSlot: 500,
+        sportsType: "Football",
+        amenities: "Floodlights, Drinking Water",
+      });
+      showToast("Turf created successfully! 🎉");
+    } catch (err: any) {
+      showToast(err?.response?.data?.message || "Failed to create turf.", "error");
+    } finally {
+      setSaving(false);
     }
   };
 
-  // Remove image from gallery
-  const handleRemoveImage = (index: number) => {
-    if (imageList.length <= 2) {
-      alert("Error: A turf must have at least 2 gallery images.");
-      return;
-    }
-    setImageList((prev) => {
-      const updated = prev.filter((_, i) => i !== index);
-      saveImagesToDatabase(updated);
-      return updated;
-    });
-  };
-
-  // Sync images to database
-  const saveImagesToDatabase = (updatedImages: string[]) => {
+  // ── Open Edit Modal ─────────────────────────────────────────────────────────
+  const openEditModal = () => {
     if (!selectedTurf) return;
-    const loadedTurfs: TurfItem[] = JSON.parse(localStorage.getItem("turfCatalogData") || "[]");
-    const updated = loadedTurfs.map((t) => {
-      if (t.id === selectedTurf.id) {
-        return {
-          ...t,
-          image: updatedImages[0] || t.image, // update primary image with first item
-          images: updatedImages,
-        };
-      }
-      return t;
+    setEditForm({
+      turfName: selectedTurf.turfName,
+      description: selectedTurf.description,
+      address: selectedTurf.location.address,
+      city: selectedTurf.location.city,
+      openingTime: selectedTurf.openingTime,
+      closingTime: selectedTurf.closingTime,
+      slotDuration: selectedTurf.slotDuration,
+      pricePerSlot: selectedTurf.pricePerSlot,
+      sportsType: selectedTurf.sportsType.join(", "),
+      amenities: selectedTurf.amenities.join(", "),
     });
-    localStorage.setItem("turfCatalogData", JSON.stringify(updated));
-    setSelectedTurf({
-      ...selectedTurf,
-      image: updatedImages[0] || selectedTurf.image,
-      images: updatedImages,
-    });
-    setMyTurfs(myTurfs.map(t => t.id === selectedTurf.id ? { ...t, image: updatedImages[0] || t.image, images: updatedImages } : t));
+    setEditImages([]);
+    setShowEditModal(true);
   };
 
-  // Save Turf form changes
-  const handleSaveDetails = (e: React.FormEvent) => {
+  // ── Edit Turf Submit ────────────────────────────────────────────────────────
+  const handleEditTurf = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedTurf) return;
-
-    const parsedAmenities = turfForm.amenities
-      .split(",")
-      .map((item) => item.trim())
-      .filter((item) => item !== "");
-
-    const loadedTurfs: TurfItem[] = JSON.parse(localStorage.getItem("turfCatalogData") || "[]");
-    const updated = loadedTurfs.map((t) => {
-      if (t.id === selectedTurf.id) {
-        return {
-          ...t,
-          name: turfForm.name,
-          location: turfForm.location,
-          pricePerHour: Number(turfForm.pricePerHour),
-          sport: turfForm.sport,
-          amenities: parsedAmenities,
-        };
-      }
-      return t;
-    });
-
-    localStorage.setItem("turfCatalogData", JSON.stringify(updated));
-    const updatedTurfObj = {
-      ...selectedTurf,
-      name: turfForm.name,
-      location: turfForm.location,
-      pricePerHour: Number(turfForm.pricePerHour),
-      sport: turfForm.sport,
-      amenities: parsedAmenities,
-    };
-    setSelectedTurf(updatedTurfObj);
-    setMyTurfs(myTurfs.map(t => t.id === selectedTurf.id ? updatedTurfObj : t));
-    alert("Turf details updated successfully!");
+    setSaving(true);
+    try {
+      const updated = await ownerTurfService.updateTurf(selectedTurf._id, {
+        turfName: editForm.turfName,
+        description: editForm.description,
+        address: editForm.address,
+        city: editForm.city,
+        openingTime: editForm.openingTime,
+        closingTime: editForm.closingTime,
+        slotDuration: Number(editForm.slotDuration),
+        pricePerSlot: Number(editForm.pricePerSlot),
+        sportsType: editForm.sportsType.split(",").map((s) => s.trim()).filter(Boolean),
+        amenities: editForm.amenities.split(",").map((a) => a.trim()).filter(Boolean),
+        images: editImages.length > 0 ? editImages : undefined,
+      });
+      const updatedList = myTurfs.map((t) => (t._id === updated._id ? updated : t));
+      setMyTurfs(updatedList);
+      setSelectedTurf(updated);
+      setShowEditModal(false);
+      showToast("Turf updated successfully!");
+    } catch (err: any) {
+      showToast(err?.response?.data?.message || "Failed to update turf.", "error");
+    } finally {
+      setSaving(false);
+    }
   };
 
-  // Add new turf handler
-  const handleSaveNewTurf = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!ownerUser) return;
-
-    if (uploadedRegisterImages.length < 2) {
-      alert("Error: You must upload at least 2 images for the turf.");
-      return;
+  // ── Toggle Status ────────────────────────────────────────────────────────────
+  const handleToggleStatus = async () => {
+    if (!selectedTurf) return;
+    const newStatus = selectedTurf.status === "active" ? "inactive" : "active";
+    try {
+      const updated = await ownerTurfService.updateTurfStatus(selectedTurf._id, newStatus);
+      const updatedList = myTurfs.map((t) => (t._id === updated._id ? updated : t));
+      setMyTurfs(updatedList);
+      setSelectedTurf(updated);
+      showToast(`Turf is now ${newStatus}.`);
+    } catch (err: any) {
+      showToast(err?.response?.data?.message || "Failed to update status.", "error");
     }
-    if (uploadedRegisterImages.length > 20) {
-      alert("Error: You can upload a maximum of 20 images.");
-      return;
-    }
-
-    const parsedAmenities = newTurfFormData.amenities
-      .split(",")
-      .map((item) => item.trim())
-      .filter((item) => item !== "");
-
-    const loadedTurfs: TurfItem[] = JSON.parse(localStorage.getItem("turfCatalogData") || "[]");
-    const newId = loadedTurfs.length > 0 ? Math.max(...loadedTurfs.map((t) => t.id)) + 1 : 1;
-
-    const newTurf: TurfItem = {
-      id: newId,
-      name: newTurfFormData.name,
-      location: newTurfFormData.location,
-      pricePerHour: Number(newTurfFormData.pricePerHour),
-      sport: newTurfFormData.sport,
-      rating: 5.0,
-      image: uploadedRegisterImages[0] || "https://images.unsplash.com/photo-1587280501635-68a0e82cd5ff?q=80&w=600&auto=format&fit=crop",
-      images: uploadedRegisterImages,
-      amenities: parsedAmenities,
-      ownerId: ownerUser.email,
-    };
-
-    const updatedCatalog = [...loadedTurfs, newTurf];
-    localStorage.setItem("turfCatalogData", JSON.stringify(updatedCatalog));
-
-    // Update user ownedTurfId in registeredUsers if they didn't have one before
-    const loadedUsers: UserItem[] = JSON.parse(localStorage.getItem("registeredUsers") || "[]");
-    const updatedUsers = loadedUsers.map((u) => {
-      if (u.email === ownerUser.email && u.ownedTurfId === undefined) {
-        return { ...u, ownedTurfId: newId };
-      }
-      return u;
-    });
-    localStorage.setItem("registeredUsers", JSON.stringify(updatedUsers));
-
-    const updatedMyTurfs = [...myTurfs, newTurf];
-    setMyTurfs(updatedMyTurfs);
-    setSelectedTurf(newTurf);
-    setTurfForm({
-      name: newTurf.name,
-      location: newTurf.location,
-      pricePerHour: newTurf.pricePerHour,
-      sport: newTurf.sport,
-      amenities: newTurf.amenities.join(", "),
-    });
-    setImageList(newTurf.images || []);
-
-    // Refresh bookings for the updated set of owned turfs
-    const myTurfIds = updatedMyTurfs.map((t) => t.id);
-    const loadedBookings: BookingItem[] = JSON.parse(localStorage.getItem("bookings") || "[]");
-    setBookings(loadedBookings.filter((b) => myTurfIds.includes(b.turfId)));
-
-    setShowAddTurfModal(false);
-    setUploadedRegisterImages([]);
-    alert("New turf registered successfully!");
   };
 
-  // Stats
-  const confirmedBookings = bookings.filter((b) => b.status === "Confirmed");
-  const totalRevenue = confirmedBookings.reduce((sum, b) => sum + b.amount, 0);
+  // ── Delete Turf ──────────────────────────────────────────────────────────────
+  const handleDeleteTurf = async () => {
+    if (!selectedTurf) return;
+    setSaving(true);
+    try {
+      await ownerTurfService.deleteTurf(selectedTurf._id);
+      const remaining = myTurfs.filter((t) => t._id !== selectedTurf._id);
+      setMyTurfs(remaining);
+      setSelectedTurf(remaining[0] || null);
+      setBookings([]);
+      if (remaining[0]) await loadBookingsForTurf(remaining[0]._id);
+      setShowDeleteConfirm(false);
+      showToast("Turf deleted.", "success");
+    } catch (err: any) {
+      showToast(err?.response?.data?.message || "Failed to delete turf.", "error");
+    } finally {
+      setSaving(false);
+    }
+  };
 
-  if (!ownerUser) {
+  // ── Stats ─────────────────────────────────────────────────────────────────────
+  const confirmedBookings = bookings.filter((b) => b.status === "confirmed");
+  const totalRevenue = confirmedBookings.reduce((s, b) => s + b.totalAmount, 0);
+
+  // ── Loading/Redirecting ───────────────────────────────────────────────────────
+  if (authLoading || loading) {
     return (
-      <div className="min-h-screen pt-24 pb-20 flex items-center justify-center">
-        <div className="animate-pulse text-slate-400">Loading Dashboard...</div>
+      <div className="min-h-screen flex items-center justify-center bg-slate-50 dark:bg-slate-950">
+        <div className="flex flex-col items-center gap-4 text-slate-400">
+          <FaSpinner className="animate-spin text-4xl text-green-500" />
+          <span className="font-semibold">Loading Dashboard…</span>
+        </div>
       </div>
     );
   }
 
-  const isPending = ownerUser.status === "Pending";
-  const isRejected = ownerUser.status === "Rejected";
-  const isVerified = ownerUser.status === "Verified";
-
+  // ─────────────────────────────────────────────────────────────────────────────
   return (
-    <div className="bg-slate-50 text-slate-900 dark:bg-slate-950 dark:text-slate-100 transition-colors duration-500 min-h-screen pt-24 pb-20 px-4 md:px-8">
-      <div className="max-w-7xl mx-auto">
-        
-        {/* Top Profile Header (Showing Owner Name on Top) */}
-        <div className="bg-white dark:bg-slate-900/40 backdrop-blur-md border border-slate-205 dark:border-slate-800 rounded-3xl p-6 md:p-8 shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-6 mb-8">
+    <div className="bg-slate-50 dark:bg-slate-950 min-h-screen pt-24 pb-20 px-4 md:px-8 text-slate-900 dark:text-slate-100">
+      <div className="max-w-7xl mx-auto space-y-8">
+
+        {/* ── Header ─────────────────────────────────────────────────── */}
+        <div className="bg-white dark:bg-slate-900/50 border border-slate-200 dark:border-slate-800 rounded-3xl p-6 md:p-8 shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-6">
           <div>
-            <span className="text-green-600 dark:text-green-400 font-semibold tracking-widest text-xs uppercase bg-green-500/10 px-3 py-1 rounded-full border border-green-500/20">
-              Turf Owner Account
+            <span className="inline-block text-green-600 dark:text-green-400 font-semibold tracking-widest text-xs uppercase bg-green-500/10 px-3 py-1 rounded-full border border-green-500/20 mb-3">
+              {user?.role === "admin" ? "Admin" : "Turf Owner"} Dashboard
             </span>
-            <h1 className="text-3xl font-black mt-3">
-              Welcome back, <span className="text-green-500 dark:text-green-400 font-black">{ownerUser.username}</span>
+            <h1 className="text-2xl md:text-3xl font-black">
+              Welcome back,{" "}
+              <span className="text-green-500 dark:text-green-400">{user?.fullName}</span>
             </h1>
-            <p className="text-xs text-slate-400 font-semibold uppercase mt-1">
-              Business: {ownerUser.businessName || "Personal"} • Email: {ownerUser.email}
+            <p className="text-xs text-slate-400 font-semibold mt-1">
+              {user?.emailId} • {myTurfs.length} Turf{myTurfs.length !== 1 ? "s" : ""} Managed
             </p>
-            {isVerified && myTurfs.length > 0 && (
+
+            {/* Turf selector */}
+            {myTurfs.length > 1 && (
               <div className="flex items-center gap-3 mt-4">
-                <span className="text-xs font-bold text-slate-400">Managing Venue:</span>
+                <span className="text-xs font-bold text-slate-400">Viewing:</span>
                 <select
-                  value={selectedTurf?.id || ""}
-                  onChange={(e) => handleSelectTurfChange(Number(e.target.value))}
-                  className="bg-slate-50 dark:bg-slate-900 border border-slate-205 dark:border-slate-800 text-slate-800 dark:text-slate-200 py-1.5 px-3.5 rounded-xl text-xs font-bold focus:outline-none"
+                  value={selectedTurf?._id || ""}
+                  onChange={(e) => {
+                    const t = myTurfs.find((t) => t._id === e.target.value);
+                    if (t) handleSelectTurf(t);
+                  }}
+                  className="bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-800 dark:text-slate-200 py-1.5 px-3 rounded-xl text-xs font-bold focus:outline-none focus:ring-1 focus:ring-green-500"
                 >
                   {myTurfs.map((t) => (
-                    <option key={t.id} value={t.id}>
-                      {t.name}
+                    <option key={t._id} value={t._id}>
+                      {t.turfName}
                     </option>
                   ))}
                 </select>
@@ -404,316 +407,202 @@ const OwnerDashboard = () => {
             )}
           </div>
 
-          <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3">
-            {isVerified && (
-              <button
-                onClick={() => {
-                  setNewTurfFormData({
-                    name: "",
-                    location: "",
-                    pricePerHour: 50,
-                    sport: "Football",
-                    amenities: "Drinking Water, Floodlights",
-                  });
-                  setUploadedRegisterImages([]);
-                  setShowAddTurfModal(true);
-                }}
-                className="bg-green-500 hover:bg-green-600 text-white font-bold py-2.5 px-5 rounded-2xl text-xs flex items-center gap-2 cursor-pointer shadow-md shadow-green-500/10 transition"
-              >
-                <FaPlus />
-                <span>Add Turf</span>
-              </button>
+          {/* Action buttons */}
+          <div className="flex flex-wrap gap-3">
+            <button
+              onClick={() => setShowAddModal(true)}
+              className="flex items-center gap-2 bg-green-500 hover:bg-green-600 text-white font-bold py-2.5 px-5 rounded-2xl text-xs shadow-md shadow-green-500/20 transition cursor-pointer"
+            >
+              <FaPlus />
+              Add New Turf
+            </button>
+            {selectedTurf && (
+              <>
+                <button
+                  onClick={openEditModal}
+                  className="flex items-center gap-2 bg-blue-500/10 hover:bg-blue-500/20 text-blue-600 dark:text-blue-400 border border-blue-500/20 font-bold py-2.5 px-5 rounded-2xl text-xs transition cursor-pointer"
+                >
+                  <FaEdit />
+                  Edit Turf
+                </button>
+                <button
+                  onClick={handleToggleStatus}
+                  className={`flex items-center gap-2 font-bold py-2.5 px-5 rounded-2xl text-xs border transition cursor-pointer ${
+                    selectedTurf.status === "active"
+                      ? "bg-yellow-500/10 hover:bg-yellow-500/20 text-yellow-600 dark:text-yellow-400 border-yellow-500/20"
+                      : "bg-green-500/10 hover:bg-green-500/20 text-green-600 dark:text-green-400 border-green-500/20"
+                  }`}
+                >
+                  {selectedTurf.status === "active" ? <FaToggleOn /> : <FaToggleOff />}
+                  {selectedTurf.status === "active" ? "Set Inactive" : "Set Active"}
+                </button>
+                <button
+                  onClick={() => setShowDeleteConfirm(true)}
+                  className="flex items-center gap-2 bg-red-500/10 hover:bg-red-500/20 text-red-500 border border-red-500/20 font-bold py-2.5 px-5 rounded-2xl text-xs transition cursor-pointer"
+                >
+                  <FaTrash />
+                  Delete
+                </button>
+              </>
             )}
+          </div>
+        </div>
 
-            {isVerified && (
-              <div className="flex items-center gap-2 bg-green-500/10 border border-green-500/20 px-4.5 py-2.5 rounded-2xl text-green-600 dark:text-green-400 text-sm font-black shadow-sm">
-                <FaCheckCircle className="text-base" />
-                <span>Verified Account</span>
-              </div>
-            )}
-            {isPending && (
-              <div className="flex items-center gap-2 bg-yellow-500/10 border border-yellow-500/20 px-4.5 py-2.5 rounded-2xl text-yellow-600 dark:text-yellow-400 text-sm font-black shadow-sm">
-                <FaExclamationTriangle className="text-base animate-pulse" />
-                <span>Verification Pending</span>
-              </div>
-            )}
-            {isRejected && (
-              <div className="flex items-center gap-2 bg-red-500/10 border border-red-500/20 px-4.5 py-2.5 rounded-2xl text-red-600 dark:text-red-400 text-sm font-black shadow-sm">
-                <FaTimesCircle className="text-base" />
-                <span>Verification Rejected</span>
-              </div>
-            )}
-          </div>
-        </div>        {/* Dashboard Workspaces (Depends on Verification Status) */}
-        {!isVerified ? (
-          /* PENDING / REJECTED STATUS SCREEN */
-          <div className="bg-white dark:bg-slate-900/40 backdrop-blur-md border border-slate-200 dark:border-slate-800 rounded-3xl p-8 shadow-xl max-w-2xl mx-auto text-center space-y-6">
-            <div className="w-16 h-16 bg-yellow-500/10 border border-yellow-500/20 rounded-full flex items-center justify-center mx-auto text-yellow-500 text-2xl">
-              <FaExclamationTriangle />
-            </div>
-            <h3 className="text-2xl font-black text-slate-800 dark:text-white">
-              {isPending ? "Account Under Review" : "Account Verification Rejected"}
-            </h3>
-            <p className="text-slate-500 dark:text-slate-400 text-sm leading-relaxed">
-              {isPending
-                ? "Your owner profile registration is currently pending verification review by our Administrators. We are inspecting your license ID and business address details. You will get full access to manage your turf slots and photo galleries once verified. Thank you!"
-                : "Your owner verification credentials have been rejected by the administrator console. Please contact support or register again with valid business documents."}
-            </p>
-          </div>
-        ) : !selectedTurf ? (
-          /* NO TURF ASSIGNED SCREEN */
-          <div className="bg-white dark:bg-slate-900/40 backdrop-blur-md border border-slate-205 dark:border-slate-800 rounded-3xl p-8 shadow-xl max-w-2xl mx-auto text-center space-y-6 animate-in fade-in duration-300">
+        {/* ── No Turf yet ─────────────────────────────────────────────── */}
+        {myTurfs.length === 0 && (
+          <div className="bg-white dark:bg-slate-900/50 border border-slate-200 dark:border-slate-800 rounded-3xl p-10 text-center shadow-sm max-w-lg mx-auto space-y-4">
             <div className="w-16 h-16 bg-green-500/10 border border-green-500/20 rounded-full flex items-center justify-center mx-auto text-green-500 text-2xl">
               <FaBuilding />
             </div>
-            <h3 className="text-2xl font-black text-slate-800 dark:text-white">
-              No Turf Assigned Yet
-            </h3>
-            <p className="text-slate-500 dark:text-slate-400 text-sm leading-relaxed">
-              Your account has been fully verified! However, you do not manage a turf yet.
-              You can wait for an administrator to assign an existing turf to your account, or claim/initialize your own turf now.
+            <h3 className="text-xl font-black">No Turfs Yet</h3>
+            <p className="text-slate-400 text-sm">
+              You haven't added any turfs yet. Click "Add New Turf" to get started!
             </p>
             <button
-              onClick={() => {
-                setNewTurfFormData({
-                  name: `${ownerUser.username}'s Turf Arena`,
-                  location: ownerUser.businessAddress || "TBD Address",
-                  pricePerHour: 50,
-                  sport: "Football",
-                  amenities: "Drinking Water, Floodlights",
-                });
-                setUploadedRegisterImages([]);
-                setShowAddTurfModal(true);
-              }}
-              className="bg-green-500 hover:bg-green-600 text-white font-bold py-3 px-6 rounded-xl text-xs flex items-center gap-2 cursor-pointer shadow-md shadow-green-500/10 mx-auto"
+              onClick={() => setShowAddModal(true)}
+              className="inline-flex items-center gap-2 bg-green-500 hover:bg-green-600 text-white font-bold py-3 px-6 rounded-2xl text-xs shadow-md cursor-pointer transition"
             >
               <FaPlus />
-              <span>Register & Build Your First Turf</span>
+              Register Your First Turf
             </button>
           </div>
-        ) : (
-          /* ACTIVE VERIFIED OWNER WORKSPACE */
-          <div className="space-y-8 animate-in fade-in duration-300">
-            
-            {/* Analytics Stats Grid */}
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-              {[
-                { label: "Turf Name", val: selectedTurf.name, sub: selectedTurf.location, icon: FaBuilding, col: "text-blue-500" },
-                { label: "Total Bookings", val: bookings.length, sub: "Reservations count", icon: FaBookOpen, col: "text-purple-500" },
-                { label: "Total Revenue", val: `$${totalRevenue}.00`, sub: "Calculated earnings", icon: FaDollarSign, col: "text-green-500" },
-              ].map((stat, i) => {
-                const Icon = stat.icon;
-                return (
-                  <div key={i} className="bg-white dark:bg-slate-900/40 backdrop-blur-md border border-slate-205 dark:border-slate-800 p-6 rounded-3xl shadow-sm flex items-center justify-between">
-                    <div>
-                      <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest block mb-1">
-                        {stat.label}
-                      </span>
-                      <span className="text-xl font-black block truncate max-w-[200px]">{stat.val}</span>
-                      <span className="text-[10px] text-slate-500 block truncate max-w-[200px]">{stat.sub}</span>
-                    </div>
-                    <div className={`p-4 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-850 rounded-2xl text-xl ${stat.col}`}>
-                      <Icon />
-                    </div>
-                  </div>
-                );
-              })}
+        )}
+
+        {/* ── Dashboard Panels (when turf selected) ─────────────────────── */}
+        {selectedTurf && (
+          <>
+            {/* Stats */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+              <StatCard icon={FaBuilding} label="Turf Name" value={selectedTurf.turfName} color="bg-blue-500" />
+              <StatCard icon={FaRupeeSign} label="Price / Slot" value={`₹${selectedTurf.pricePerSlot}`} color="bg-green-500" />
+              <StatCard icon={FaBookOpen} label="Total Bookings" value={bookings.length} color="bg-purple-500" />
+              <StatCard icon={FaChartBar} label="Revenue (Confirmed)" value={`₹${totalRevenue.toLocaleString()}`} color="bg-orange-500" />
             </div>
 
-            {/* Layout Workspaces Split */}
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-              
-              {/* Left Column: Edit Details Form */}
-              <div className="bg-white dark:bg-slate-900/40 backdrop-blur-md border border-slate-200 dark:border-slate-800 rounded-3xl p-6 md:p-8 shadow-sm space-y-6">
-                <h3 className="text-xl font-black border-b border-slate-100 dark:border-slate-800 pb-3 flex items-center gap-2">
-                  <FaBuilding className="text-green-500 text-sm" />
-                  <span>Update Turf Specifications</span>
-                </h3>
-
-                <form onSubmit={handleSaveDetails} className="space-y-4">
-                  <div>
-                    <label className="block text-xs font-bold uppercase tracking-wider text-slate-400 mb-1.5">Turf Arena Name</label>
-                    <input
-                      required
-                      type="text"
-                      value={turfForm.name}
-                      onChange={(e) => setTurfForm({ ...turfForm, name: e.target.value })}
-                      className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-205 dark:border-slate-800 text-slate-800 dark:text-slate-200 py-3 px-4 rounded-xl focus:outline-none focus:ring-1 focus:ring-green-500"
+            {/* Turf Details Card */}
+            <div className="bg-white dark:bg-slate-900/50 border border-slate-200 dark:border-slate-800 rounded-3xl overflow-hidden shadow-sm">
+              {/* Images row */}
+              {selectedTurf.images.length > 0 && (
+                <div className="flex gap-2 p-4 overflow-x-auto">
+                  {selectedTurf.images.map((img, i) => (
+                    <img
+                      key={i}
+                      src={img.url}
+                      alt={`turf-${i}`}
+                      className="h-32 w-48 object-cover rounded-xl flex-shrink-0"
                     />
-                  </div>
-
-                  <div>
-                    <label className="block text-xs font-bold uppercase tracking-wider text-slate-400 mb-1.5">Venue Address / Location</label>
-                    <input
-                      required
-                      type="text"
-                      value={turfForm.location}
-                      onChange={(e) => setTurfForm({ ...turfForm, location: e.target.value })}
-                      className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-205 dark:border-slate-800 text-slate-800 dark:text-slate-200 py-3 px-4 rounded-xl focus:outline-none focus:ring-1 focus:ring-green-500"
-                    />
-                  </div>
-
-                  <div className="grid grid-cols-2 gap-4">
-                    <div>
-                      <label className="block text-xs font-bold uppercase tracking-wider text-slate-400 mb-1.5">Hourly Fee ($)</label>
-                      <input
-                        required
-                        type="number"
-                        value={turfForm.pricePerHour}
-                        onChange={(e) => setTurfForm({ ...turfForm, pricePerHour: Number(e.target.value) })}
-                        className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-205 dark:border-slate-800 text-slate-800 dark:text-slate-200 py-3 px-4 rounded-xl focus:outline-none focus:ring-1 focus:ring-green-500"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-xs font-bold uppercase tracking-wider text-slate-400 mb-1.5">Primary Sport</label>
-                      <select
-                        value={turfForm.sport}
-                        onChange={(e) => setTurfForm({ ...turfForm, sport: e.target.value as any })}
-                        className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-205 dark:border-slate-800 text-slate-850 dark:text-slate-200 py-3 px-4 rounded-xl focus:outline-none focus:ring-1 focus:ring-green-500"
-                      >
-                        <option value="Cricket">Cricket</option>
-                        <option value="Football">Football</option>
-                        <option value="Tennis">Tennis</option>
-                        <option value="Basketball">Basketball</option>
-                        <option value="Badminton">Badminton</option>
-                      </select>
-                    </div>
-                  </div>
-
-                  <div>
-                    <label className="block text-xs font-bold uppercase tracking-wider text-slate-400 mb-1.5">Amenities (comma-separated)</label>
-                    <input
-                      type="text"
-                      value={turfForm.amenities}
-                      onChange={(e) => setTurfForm({ ...turfForm, amenities: e.target.value })}
-                      className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-205 dark:border-slate-800 text-slate-800 dark:text-slate-200 py-3 px-4 rounded-xl focus:outline-none focus:ring-1 focus:ring-green-500"
-                      placeholder="e.g. Drinking Water, Floodlights"
-                    />
-                  </div>
-
-                  <button
-                    type="submit"
-                    className="w-full py-3.5 bg-green-500 hover:bg-green-600 text-white font-bold rounded-xl text-xs cursor-pointer shadow-md shadow-green-500/10 transition"
-                  >
-                    Save Specifications
-                  </button>
-                </form>
-              </div>
-
-              {/* Right Column: Multiple Images Manager */}
-              <div className="bg-white dark:bg-slate-900/40 backdrop-blur-md border border-slate-205 dark:border-slate-800 rounded-3xl p-6 md:p-8 shadow-sm space-y-6">
-                <h3 className="text-xl font-black border-b border-slate-100 dark:border-slate-800 pb-3 flex items-center justify-between">
-                  <span className="flex items-center gap-2">
-                    <FaImage className="text-green-500 text-sm" />
-                    <span>Turf Photo Gallery</span>
-                  </span>
-                  <span className={`text-xs font-bold px-2.5 py-1 rounded-full ${
-                    imageList.length >= 2 && imageList.length <= 20
-                      ? "bg-green-500/10 text-green-550 dark:text-green-400"
-                      : "bg-red-500/10 text-red-550 dark:text-red-400"
-                  }`}>
-                    {imageList.length} / 20 Images
-                  </span>
-                </h3>
-                <p className="text-[10px] text-slate-450 dark:text-slate-500 -mt-3.5 block font-bold">
-                  A minimum of 2 and a maximum of 20 images are required.
-                </p>
-
-                {/* Local image uploader button */}
-                <div className="bg-slate-50 dark:bg-slate-950 border border-dashed border-slate-200 dark:border-slate-800 rounded-2xl p-6 text-center space-y-3">
-                  <div className="w-12 h-12 bg-green-500/10 border border-green-500/20 text-green-500 rounded-full flex items-center justify-center mx-auto text-lg">
-                    <FaUpload />
-                  </div>
-                  <div>
-                    <span className="font-bold text-xs block">Upload Venue Images</span>
-                    <span className="text-[10px] text-slate-400 block mt-0.5">Select image files from your computer</span>
-                  </div>
-                  <label className="inline-block py-2 px-4 bg-green-500 hover:bg-green-600 text-white font-bold rounded-xl text-[10px] cursor-pointer shadow-sm">
-                    Browse Files
-                    <input
-                      type="file"
-                      multiple
-                      accept="image/*"
-                      onChange={handleLocalImageUpload}
-                      className="hidden"
-                    />
-                  </label>
-                </div>
-
-                {/* External URL adder */}
-                <form onSubmit={handleAddImageUrl} className="flex gap-2">
-                  <input
-                    type="text"
-                    value={newImageUrl}
-                    onChange={(e) => setNewImageUrl(e.target.value)}
-                    placeholder="Or paste external image URL..."
-                    className="flex-1 bg-slate-50 dark:bg-slate-950 border border-slate-205 dark:border-slate-800 text-slate-800 dark:text-slate-200 py-2.5 px-4 rounded-xl text-xs focus:outline-none"
-                  />
-                  <button
-                    type="submit"
-                    className="p-3 bg-green-500 hover:bg-green-600 text-white rounded-xl cursor-pointer"
-                  >
-                    <FaPlus className="text-xs" />
-                  </button>
-                </form>
-
-                {/* Thumbnail list */}
-                <div className="grid grid-cols-4 gap-3.5 pt-2">
-                  {imageList.map((img, index) => (
-                    <div key={index} className="relative aspect-video rounded-xl overflow-hidden border border-slate-200 dark:border-slate-800 group">
-                      <img src={img} alt="turf preview" className="w-full h-full object-cover" />
-                      <button
-                        onClick={() => handleRemoveImage(index)}
-                        className="absolute inset-0 bg-red-650/80 backdrop-blur-sm opacity-0 group-hover:opacity-100 transition duration-300 flex items-center justify-center text-white cursor-pointer"
-                      >
-                        <FaTrash className="text-xs" />
-                      </button>
-                    </div>
                   ))}
                 </div>
+              )}
+              <div className="p-6 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                <div>
+                  <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400 mb-1">Location</p>
+                  <p className="font-bold text-slate-700 dark:text-slate-200">{selectedTurf.location.address}</p>
+                  <p className="text-xs text-slate-400">{selectedTurf.location.city}</p>
+                </div>
+                <div>
+                  <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400 mb-1">Hours</p>
+                  <p className="font-bold text-slate-700 dark:text-slate-200">
+                    {selectedTurf.openingTime} – {selectedTurf.closingTime}
+                  </p>
+                  <p className="text-xs text-slate-400">{selectedTurf.slotDuration} min slots</p>
+                </div>
+                <div>
+                  <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400 mb-1">Sports</p>
+                  <p className="font-bold text-slate-700 dark:text-slate-200">
+                    {selectedTurf.sportsType.join(", ")}
+                  </p>
+                </div>
+                <div>
+                  <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400 mb-1">Status</p>
+                  <span
+                    className={`inline-block px-3 py-1 rounded-full text-xs font-black border ${
+                      selectedTurf.status === "active"
+                        ? "bg-green-500/10 border-green-500/20 text-green-600 dark:text-green-400"
+                        : "bg-red-500/10 border-red-500/20 text-red-500"
+                    }`}
+                  >
+                    {selectedTurf.status}
+                  </span>
+                </div>
+                <div className="md:col-span-2">
+                  <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400 mb-1">Amenities</p>
+                  <div className="flex flex-wrap gap-2">
+                    {selectedTurf.amenities.map((a) => (
+                      <span
+                        key={a}
+                        className="bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 text-xs font-semibold px-2.5 py-1 rounded-lg"
+                      >
+                        {a}
+                      </span>
+                    ))}
+                  </div>
+                </div>
               </div>
+            </div>
 
-            </div>            {/* Bottom Row: Bookings List Schedule */}
-            <div className="bg-white dark:bg-slate-900/40 backdrop-blur-md border border-slate-200 dark:border-slate-800 rounded-3xl p-6 md:p-8 shadow-sm">
-              <h3 className="text-xl font-black border-b border-slate-100 dark:border-slate-800 pb-3 flex items-center gap-2 mb-6">
-                <FaCalendarAlt className="text-green-500 text-sm" />
-                <span>Your Turf Bookings Schedule</span>
+            {/* Bookings Table */}
+            <div className="bg-white dark:bg-slate-900/50 border border-slate-200 dark:border-slate-800 rounded-3xl p-6 shadow-sm">
+              <h3 className="text-lg font-black flex items-center gap-2 mb-5 border-b border-slate-100 dark:border-slate-800 pb-3">
+                <FaCalendarAlt className="text-green-500" />
+                Bookings for {selectedTurf.turfName}
               </h3>
-
               {bookings.length === 0 ? (
-                <div className="text-center py-16 bg-slate-55/10 dark:bg-slate-955/20 rounded-2xl border border-dashed border-slate-200 dark:border-slate-850">
-                  <p className="text-slate-400 dark:text-slate-500 font-semibold">No bookings have been scheduled for your turf yet.</p>
+                <div className="text-center py-14 text-slate-400 font-semibold border border-dashed border-slate-200 dark:border-slate-800 rounded-2xl">
+                  No bookings yet for this turf.
                 </div>
               ) : (
                 <div className="overflow-x-auto">
-                  <table className="w-full border-collapse text-left text-xs">
+                  <table className="w-full text-xs text-left border-collapse">
                     <thead>
-                      <tr className="border-b border-slate-205 dark:border-slate-800 text-slate-400 uppercase font-bold tracking-wider">
-                        <th className="pb-3 pl-2">Reference</th>
-                        <th className="pb-3">Booking Date</th>
-                        <th className="pb-3">Time Slot</th>
-                        <th className="pb-3">Player details</th>
+                      <tr className="border-b border-slate-200 dark:border-slate-800 text-slate-400 uppercase font-bold tracking-wider">
+                        <th className="pb-3 pl-2">Player</th>
+                        <th className="pb-3">Date</th>
+                        <th className="pb-3">Slot</th>
                         <th className="pb-3">Amount</th>
+                        <th className="pb-3">Payment</th>
                         <th className="pb-3 pr-2 text-right">Status</th>
                       </tr>
                     </thead>
-                    <tbody className="divide-y divide-slate-150 dark:divide-slate-850">
+                    <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
                       {bookings.map((b) => (
-                        <tr key={b.reference} className="hover:bg-slate-50 dark:hover:bg-white/5 transition">
-                          <td className="py-4 pl-2 font-extrabold text-slate-800 dark:text-white">{b.reference}</td>
-                          <td className="py-4 font-semibold text-slate-600 dark:text-slate-400">{b.date}</td>
-                          <td className="py-4 font-semibold text-slate-605 dark:text-slate-400">{b.slotTime}</td>
-                          <td className="py-4">
-                            <span className="font-bold block">{b.playerName}</span>
-                            <span className="text-[10px] text-slate-400">{b.playerEmail}</span>
+                        <tr key={b._id} className="hover:bg-slate-50 dark:hover:bg-white/5 transition">
+                          <td className="py-3.5 pl-2">
+                            <span className="font-bold block text-slate-800 dark:text-white">
+                              {b.user?.fullName}
+                            </span>
+                            <span className="text-[10px] text-slate-400">{b.user?.emailId}</span>
                           </td>
-                          <td className="py-4 font-extrabold text-green-600 dark:text-green-400">${b.amount}</td>
-                          <td className="py-4 pr-2 text-right">
-                            <span className={`px-2.5 py-0.5 rounded-full font-black text-[9px] uppercase border ${
-                              b.status === "Confirmed"
-                                ? "bg-green-500/10 border-green-500/20 text-green-600 dark:text-green-400"
-                                : "bg-red-500/10 border-red-500/20 text-red-500"
-                            }`}>
+                          <td className="py-3.5 font-semibold text-slate-600 dark:text-slate-400">
+                            {new Date(b.bookingDate).toLocaleDateString()}
+                          </td>
+                          <td className="py-3.5 font-semibold text-slate-600 dark:text-slate-400">
+                            {b.startTime} – {b.endTime}
+                          </td>
+                          <td className="py-3.5 font-extrabold text-green-600 dark:text-green-400">
+                            ₹{b.totalAmount}
+                          </td>
+                          <td className="py-3.5">
+                            <span
+                              className={`px-2 py-0.5 rounded-full text-[9px] font-black uppercase border ${
+                                b.paymentStatus === "paid"
+                                  ? "bg-green-500/10 border-green-500/20 text-green-600 dark:text-green-400"
+                                  : "bg-yellow-500/10 border-yellow-500/20 text-yellow-600"
+                              }`}
+                            >
+                              {b.paymentStatus}
+                            </span>
+                          </td>
+                          <td className="py-3.5 pr-2 text-right">
+                            <span
+                              className={`px-2.5 py-0.5 rounded-full text-[9px] font-black uppercase border ${
+                                b.status === "confirmed"
+                                  ? "bg-green-500/10 border-green-500/20 text-green-600 dark:text-green-400"
+                                  : b.status === "cancelled"
+                                  ? "bg-red-500/10 border-red-500/20 text-red-500"
+                                  : "bg-yellow-500/10 border-yellow-500/20 text-yellow-600"
+                              }`}
+                            >
                               {b.status}
                             </span>
                           </td>
@@ -724,162 +613,247 @@ const OwnerDashboard = () => {
                 </div>
               )}
             </div>
-
-          </div>
+          </>
         )}
+      </div>
 
+      {/* ══ ADD TURF MODAL ══════════════════════════════════════════════════════ */}
+      {showAddModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div
+            onClick={() => setShowAddModal(false)}
+            className="absolute inset-0 bg-slate-950/70 backdrop-blur-sm"
+          />
+          <div className="relative w-full max-w-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl shadow-2xl z-10 overflow-y-auto max-h-[90vh]">
+            <div className="p-6">
+              <div className="flex items-center justify-between mb-6">
+                <h3 className="text-xl font-black flex items-center gap-2">
+                  <FaPlus className="text-green-500" /> Register New Turf
+                </h3>
+                <button onClick={() => setShowAddModal(false)} className="p-2 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer">
+                  <FaTimes />
+                </button>
+              </div>
 
-      {/* Add Turf Modal Overlay */}
-      <AnimatePresence>
-        {showAddTurfModal && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-            {/* Backdrop */}
-            <div
-              onClick={() => setShowAddTurfModal(false)}
-              className="absolute inset-0 bg-slate-950/60 backdrop-blur-sm animate-in fade-in duration-200"
-            />
-            {/* Card Content */}
-            <div className="relative w-full max-w-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl p-6 shadow-2xl z-10 text-slate-800 dark:text-slate-200 animate-in zoom-in-95 duration-250">
-              <h3 className="text-xl font-black mb-4">
-                Register New Turf
-              </h3>
-
-              <form onSubmit={handleSaveNewTurf} className="space-y-4">
+              <form onSubmit={handleAddTurf} className="space-y-4">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <InputField label="Turf Name" required value={addForm.turfName} onChange={(v) => setAddForm({ ...addForm, turfName: v })} placeholder="e.g. Green Arena" />
+                  <InputField label="City" required value={addForm.city} onChange={(v) => setAddForm({ ...addForm, city: v })} placeholder="e.g. Mumbai" />
+                </div>
+                <InputField label="Full Address" required value={addForm.address} onChange={(v) => setAddForm({ ...addForm, address: v })} placeholder="e.g. 12, Park Street, Andheri West" />
                 <div>
-                  <label className="block text-xs font-bold uppercase tracking-wider text-slate-400 mb-1.5">Turf Name</label>
-                  <input
-                    required
-                    type="text"
-                    value={newTurfFormData.name}
-                    onChange={(e) => setNewTurfFormData({ ...newTurfFormData, name: e.target.value })}
-                    className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-205 dark:border-slate-800 text-slate-800 dark:text-slate-200 py-2.5 px-4 rounded-xl focus:outline-none"
-                    placeholder="e.g. Stamford Pitch"
+                  <label className="block text-xs font-bold uppercase tracking-wider text-slate-400 mb-1.5">Description</label>
+                  <textarea
+                    value={addForm.description}
+                    onChange={(e) => setAddForm({ ...addForm, description: e.target.value })}
+                    rows={2}
+                    placeholder="Short description of the turf..."
+                    className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-slate-800 dark:text-slate-200 py-2.5 px-4 rounded-xl focus:outline-none focus:ring-1 focus:ring-green-500 text-sm resize-none"
                   />
                 </div>
-
-                <div>
-                  <label className="block text-xs font-bold uppercase tracking-wider text-slate-400 mb-1.5">Location Address</label>
-                  <input
-                    required
-                    type="text"
-                    value={newTurfFormData.location}
-                    onChange={(e) => setNewTurfFormData({ ...newTurfFormData, location: e.target.value })}
-                    className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-205 dark:border-slate-800 text-slate-800 dark:text-slate-200 py-2.5 px-4 rounded-xl focus:outline-none"
-                    placeholder="e.g. Manchester, UK"
-                  />
-                </div>
-
                 <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <label className="block text-xs font-bold uppercase tracking-wider text-slate-400 mb-1.5">Price / Hour ($)</label>
-                    <input
-                      required
-                      type="number"
-                      value={newTurfFormData.pricePerHour}
-                      onChange={(e) => setNewTurfFormData({ ...newTurfFormData, pricePerHour: Number(e.target.value) })}
-                      className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-205 dark:border-slate-800 text-slate-800 dark:text-slate-200 py-2.5 px-4 rounded-xl focus:outline-none"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-xs font-bold uppercase tracking-wider text-slate-400 mb-1.5">Sport Type</label>
-                    <select
-                      value={newTurfFormData.sport}
-                      onChange={(e) => setNewTurfFormData({ ...newTurfFormData, sport: e.target.value as any })}
-                      className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-205 dark:border-slate-800 text-slate-800 dark:text-slate-200 py-2.5 px-4 rounded-xl focus:outline-none"
-                    >
-                      <option value="Cricket">Cricket</option>
-                      <option value="Football">Football</option>
-                      <option value="Tennis">Tennis</option>
-                      <option value="Basketball">Basketball</option>
-                      <option value="Badminton">Badminton</option>
-                    </select>
-                  </div>
+                  <InputField label="Latitude (optional)" value={addForm.latitude} onChange={(v) => setAddForm({ ...addForm, latitude: v })} placeholder="e.g. 19.076090" />
+                  <InputField label="Longitude (optional)" value={addForm.longitude} onChange={(v) => setAddForm({ ...addForm, longitude: v })} placeholder="e.g. 72.877426" />
                 </div>
+                <div className="grid grid-cols-2 gap-4">
+                  <InputField label="Opening Time" type="time" required value={addForm.openingTime} onChange={(v) => setAddForm({ ...addForm, openingTime: v })} />
+                  <InputField label="Closing Time" type="time" required value={addForm.closingTime} onChange={(v) => setAddForm({ ...addForm, closingTime: v })} />
+                </div>
+                <div className="grid grid-cols-2 gap-4">
+                  <InputField label="Slot Duration (min)" type="number" required value={String(addForm.slotDuration)} onChange={(v) => setAddForm({ ...addForm, slotDuration: Number(v) })} />
+                  <InputField label="Price Per Slot (₹)" type="number" required value={String(addForm.pricePerSlot)} onChange={(v) => setAddForm({ ...addForm, pricePerSlot: Number(v) })} />
+                </div>
+                <InputField label="Sports Type (comma-separated)" required value={addForm.sportsType} onChange={(v) => setAddForm({ ...addForm, sportsType: v })} placeholder="e.g. Football, Cricket" />
+                <InputField label="Amenities (comma-separated)" value={addForm.amenities} onChange={(v) => setAddForm({ ...addForm, amenities: v })} placeholder="e.g. Floodlights, Parking" />
 
+                {/* Image Upload */}
                 <div>
-                  <label className="block text-xs font-bold uppercase tracking-wider text-slate-400 mb-1.5">
-                    Upload Turf Images (2 to 20 images required)
+                  <label className="block text-xs font-bold uppercase tracking-wider text-slate-400 mb-2">
+                    Turf Images (max 6)
                   </label>
-                  <div className="bg-slate-50 dark:bg-slate-950 border border-dashed border-slate-200 dark:border-slate-800 rounded-2xl p-5 text-center space-y-3">
-                    <div className="w-10 h-10 bg-green-500/10 border border-green-500/20 text-green-500 rounded-full flex items-center justify-center mx-auto text-base">
-                      <FaUpload />
-                    </div>
-                    <div>
-                      <span className="font-bold text-[11px] block">Select Local Files</span>
-                      <span className="text-[9px] text-slate-400 block mt-0.5">JPEG, PNG formats supported</span>
-                    </div>
-                    <label className="inline-block py-2 px-3 bg-green-500 hover:bg-green-600 text-white font-bold rounded-lg text-[10px] cursor-pointer shadow-sm">
-                      Browse Files
-                      <input
-                        type="file"
-                        multiple
-                        accept="image/*"
-                        onChange={handleRegisterImagesUpload}
-                        className="hidden"
-                      />
-                    </label>
+                  <div
+                    onClick={() => addFileRef.current?.click()}
+                    className="border-2 border-dashed border-slate-200 dark:border-slate-700 rounded-2xl p-6 text-center cursor-pointer hover:border-green-500 transition"
+                  >
+                    <FaUpload className="text-green-500 mx-auto mb-2 text-xl" />
+                    <p className="text-xs font-semibold text-slate-400">
+                      Click to upload images
+                    </p>
+                    <input ref={addFileRef} type="file" multiple accept="image/*" className="hidden" onChange={handleAddImageSelect} />
                   </div>
-                  {/* Preview of uploaded files */}
-                  {uploadedRegisterImages.length > 0 && (
-                    <div className="grid grid-cols-5 gap-2 mt-3 max-h-24 overflow-y-auto p-1.5 bg-slate-50 dark:bg-slate-950/50 rounded-xl border border-slate-200 dark:border-slate-800">
-                      {uploadedRegisterImages.map((img, idx) => (
-                        <div key={idx} className="relative aspect-video rounded-lg overflow-hidden border border-slate-200 dark:border-slate-800 group">
-                          <img src={img} alt="preview" className="w-full h-full object-cover" />
+                  {addImagePreviews.length > 0 && (
+                    <div className="grid grid-cols-3 gap-3 mt-3">
+                      {addImagePreviews.map((src, i) => (
+                        <div key={i} className="relative rounded-xl overflow-hidden aspect-video">
+                          <img src={src} className="w-full h-full object-cover" alt="" />
                           <button
                             type="button"
-                            onClick={() => setUploadedRegisterImages((prev) => prev.filter((_, i) => i !== idx))}
-                            className="absolute inset-0 bg-red-650/80 text-white opacity-0 group-hover:opacity-100 transition flex items-center justify-center text-[10px] cursor-pointer"
+                            onClick={() => removeAddImage(i)}
+                            className="absolute top-1 right-1 bg-red-500 text-white rounded-lg p-1 text-xs cursor-pointer"
                           >
-                            <FaTrash />
+                            <FaTimes />
                           </button>
                         </div>
                       ))}
                     </div>
                   )}
-                  <p className={`text-[10px] mt-1 font-semibold ${
-                    uploadedRegisterImages.length >= 2 && uploadedRegisterImages.length <= 20
-                      ? "text-green-500"
-                      : "text-red-550 dark:text-red-400"
-                  }`}>
-                    Currently uploaded: {uploadedRegisterImages.length} images (Min 2, max 20).
-                  </p>
                 </div>
 
-                <div>
-                  <label className="block text-xs font-bold uppercase tracking-wider text-slate-400 mb-1.5">Amenities (Comma separated)</label>
-                  <input
-                    type="text"
-                    value={newTurfFormData.amenities}
-                    onChange={(e) => setNewTurfFormData({ ...newTurfFormData, amenities: e.target.value })}
-                    className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-205 dark:border-slate-800 text-slate-800 dark:text-slate-200 py-2.5 px-4 rounded-xl focus:outline-none"
-                    placeholder="Drinking Water, Changing Rooms"
-                  />
-                </div>
-
-                <div className="flex gap-3 pt-4 border-t border-slate-100 dark:border-slate-800">
-                  <button
-                    type="submit"
-                    className="flex-1 bg-green-500 hover:bg-green-600 text-white font-bold py-3 rounded-xl text-xs cursor-pointer shadow-md shadow-green-500/10"
-                  >
-                    Save Turf
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setShowAddTurfModal(false)}
-                    className="flex-1 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 font-bold py-3 rounded-xl text-xs cursor-pointer text-slate-700 dark:text-slate-300"
-                  >
-                    Cancel
-                  </button>
-                </div>
+                <button
+                  type="submit"
+                  disabled={saving}
+                  className="w-full py-3.5 bg-green-500 hover:bg-green-600 disabled:opacity-60 text-white font-bold rounded-2xl text-sm flex items-center justify-center gap-2 cursor-pointer transition shadow-md shadow-green-500/20"
+                >
+                  {saving ? <FaSpinner className="animate-spin" /> : <FaPlus />}
+                  {saving ? "Creating..." : "Create Turf"}
+                </button>
               </form>
             </div>
           </div>
-        )}
-      </AnimatePresence>
+        </div>
+      )}
 
-      </div>
+      {/* ══ EDIT TURF MODAL ════════════════════════════════════════════════════ */}
+      {showEditModal && selectedTurf && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div onClick={() => setShowEditModal(false)} className="absolute inset-0 bg-slate-950/70 backdrop-blur-sm" />
+          <div className="relative w-full max-w-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl shadow-2xl z-10 overflow-y-auto max-h-[90vh]">
+            <div className="p-6">
+              <div className="flex items-center justify-between mb-6">
+                <h3 className="text-xl font-black flex items-center gap-2">
+                  <FaEdit className="text-blue-500" /> Edit — {selectedTurf.turfName}
+                </h3>
+                <button onClick={() => setShowEditModal(false)} className="p-2 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer">
+                  <FaTimes />
+                </button>
+              </div>
+              <form onSubmit={handleEditTurf} className="space-y-4">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <InputField label="Turf Name" required value={editForm.turfName} onChange={(v) => setEditForm({ ...editForm, turfName: v })} />
+                  <InputField label="City" required value={editForm.city} onChange={(v) => setEditForm({ ...editForm, city: v })} />
+                </div>
+                <InputField label="Address" required value={editForm.address} onChange={(v) => setEditForm({ ...editForm, address: v })} />
+                <div>
+                  <label className="block text-xs font-bold uppercase tracking-wider text-slate-400 mb-1.5">Description</label>
+                  <textarea
+                    value={editForm.description}
+                    onChange={(e) => setEditForm({ ...editForm, description: e.target.value })}
+                    rows={2}
+                    className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-slate-800 dark:text-slate-200 py-2.5 px-4 rounded-xl focus:outline-none focus:ring-1 focus:ring-green-500 text-sm resize-none"
+                  />
+                </div>
+                <div className="grid grid-cols-2 gap-4">
+                  <InputField label="Opening Time" type="time" required value={editForm.openingTime} onChange={(v) => setEditForm({ ...editForm, openingTime: v })} />
+                  <InputField label="Closing Time" type="time" required value={editForm.closingTime} onChange={(v) => setEditForm({ ...editForm, closingTime: v })} />
+                </div>
+                <div className="grid grid-cols-2 gap-4">
+                  <InputField label="Slot Duration (min)" type="number" required value={String(editForm.slotDuration)} onChange={(v) => setEditForm({ ...editForm, slotDuration: Number(v) })} />
+                  <InputField label="Price Per Slot (₹)" type="number" required value={String(editForm.pricePerSlot)} onChange={(v) => setEditForm({ ...editForm, pricePerSlot: Number(v) })} />
+                </div>
+                <InputField label="Sports Type (comma-separated)" required value={editForm.sportsType} onChange={(v) => setEditForm({ ...editForm, sportsType: v })} />
+                <InputField label="Amenities (comma-separated)" value={editForm.amenities} onChange={(v) => setEditForm({ ...editForm, amenities: v })} />
+
+                {/* Add more images */}
+                <div>
+                  <label className="block text-xs font-bold uppercase tracking-wider text-slate-400 mb-2">
+                    Add More Images (optional)
+                  </label>
+                  <div
+                    onClick={() => editFileRef.current?.click()}
+                    className="border-2 border-dashed border-slate-200 dark:border-slate-700 rounded-2xl p-4 text-center cursor-pointer hover:border-blue-500 transition"
+                  >
+                    <FaImage className="text-blue-500 mx-auto mb-1" />
+                    <p className="text-xs font-semibold text-slate-400">Upload additional images</p>
+                    <input ref={editFileRef} type="file" multiple accept="image/*" className="hidden" onChange={(e) => setEditImages(Array.from(e.target.files || []))} />
+                  </div>
+                  {editImages.length > 0 && (
+                    <p className="text-xs text-green-500 font-semibold mt-2">{editImages.length} new image(s) selected</p>
+                  )}
+                </div>
+
+                <button
+                  type="submit"
+                  disabled={saving}
+                  className="w-full py-3.5 bg-blue-500 hover:bg-blue-600 disabled:opacity-60 text-white font-bold rounded-2xl text-sm flex items-center justify-center gap-2 cursor-pointer transition"
+                >
+                  {saving ? <FaSpinner className="animate-spin" /> : <FaEdit />}
+                  {saving ? "Saving..." : "Save Changes"}
+                </button>
+              </form>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ══ DELETE CONFIRM ══════════════════════════════════════════════════════ */}
+      {showDeleteConfirm && selectedTurf && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div onClick={() => setShowDeleteConfirm(false)} className="absolute inset-0 bg-slate-950/70 backdrop-blur-sm" />
+          <div className="relative bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl p-8 shadow-2xl z-10 max-w-sm w-full text-center">
+            <div className="w-14 h-14 bg-red-500/10 border border-red-500/20 rounded-full flex items-center justify-center mx-auto mb-4 text-red-500 text-2xl">
+              <FaTrash />
+            </div>
+            <h3 className="text-lg font-black mb-2">Delete Turf?</h3>
+            <p className="text-sm text-slate-400 mb-6">
+              Are you sure you want to permanently delete{" "}
+              <strong className="text-slate-700 dark:text-white">{selectedTurf.turfName}</strong>? This
+              cannot be undone.
+            </p>
+            <div className="flex gap-3">
+              <button
+                onClick={() => setShowDeleteConfirm(false)}
+                className="flex-1 py-3 border border-slate-200 dark:border-slate-700 rounded-2xl font-bold text-sm text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 cursor-pointer transition"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleDeleteTurf}
+                disabled={saving}
+                className="flex-1 py-3 bg-red-500 hover:bg-red-600 text-white font-bold rounded-2xl text-sm flex items-center justify-center gap-2 cursor-pointer transition disabled:opacity-60"
+              >
+                {saving ? <FaSpinner className="animate-spin" /> : <FaTrash />}
+                Delete
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Toast ─────────────────────────────────────────────────────────────── */}
+      {toast && <Toast msg={toast.msg} type={toast.type} onClose={() => setToast(null)} />}
     </div>
   );
 };
+
+// ── Reusable input ─────────────────────────────────────────────────────────────
+const InputField = ({
+  label,
+  value,
+  onChange,
+  placeholder,
+  type = "text",
+  required,
+}: {
+  label: string;
+  value: string;
+  onChange: (v: string) => void;
+  placeholder?: string;
+  type?: string;
+  required?: boolean;
+}) => (
+  <div>
+    <label className="block text-xs font-bold uppercase tracking-wider text-slate-400 mb-1.5">
+      {label}
+    </label>
+    <input
+      type={type}
+      value={value}
+      onChange={(e) => onChange(e.target.value)}
+      placeholder={placeholder}
+      required={required}
+      className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-slate-800 dark:text-slate-200 py-2.5 px-4 rounded-xl focus:outline-none focus:ring-1 focus:ring-green-500 text-sm"
+    />
+  </div>
+);
 
 export default OwnerDashboard;

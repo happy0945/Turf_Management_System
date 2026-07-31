@@ -97,7 +97,7 @@ const Contact = () => {
 
           {/* RIGHT: Contact Form Card */}
           <div className="lg:col-span-7 bg-white dark:bg-slate-900/40 backdrop-blur-md border border-slate-200 dark:border-slate-800 p-8 rounded-3xl shadow-[0_12px_40px_rgba(0,0,0,0.03)]">
-            <h2 className="text-2xl font-black text-slate-805 dark:text-white mb-6">
+            <h2 className="text-2xl font-black text-slate-800 dark:text-white mb-6">
               Send Us a Message
             </h2>
 

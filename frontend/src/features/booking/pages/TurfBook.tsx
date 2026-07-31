@@ -1,22 +1,28 @@
 import { useState, useEffect } from "react";
-import { motion, AnimatePresence } from "framer-motion";
-import { Link, useNavigate } from "react-router-dom";
+import { motion } from "framer-motion";
+import { useSearchParams, useNavigate, Link } from "react-router-dom";
 import {
-  FaMapMarkerAlt,
-  FaStar,
-  FaCheckCircle,
-  FaUser,
-  FaEnvelope,
-  FaPhone,
-  FaDownload,
-  FaArrowRight,
-  FaArrowLeft,
-  FaSearch,
-  FaClipboardList,
+  FaCheckCircle, FaClock,
+  FaCreditCard, FaSpinner, FaExclamationCircle, FaLock
 } from "react-icons/fa";
-import { turfCatalogData } from "../../home/data/turfCatalogData";
-import type { TurfItem } from "../../home/data/turfCatalogData";
-import Tilt from "../../home/components/Tilt";
+import { turfService, type Turf, type TimeSlot } from "../../../services/turfService";
+import { bookingService, type Booking } from "../../../services/bookingService";
+import { useAuth } from "../../../context/AuthContext";
+
+// Helper to load Razorpay Checkout script dynamically
+const loadRazorpayScript = (): Promise<boolean> => {
+  return new Promise((resolve) => {
+    if ((window as any).Razorpay) {
+      resolve(true);
+      return;
+    }
+    const script = document.createElement("script");
+    script.src = "https://checkout.razorpay.com/v1/checkout.js";
+    script.onload = () => resolve(true);
+    script.onerror = () => resolve(false);
+    document.body.appendChild(script);
+  });
+};
 
 // Generate next 7 days for the slot picker
 const getNext7Days = () => {
@@ -24,8 +30,9 @@ const getNext7Days = () => {
   for (let i = 0; i < 7; i++) {
     const d = new Date();
     d.setDate(d.getDate() + i);
+    const rawDate = d.toISOString().split("T")[0];
     days.push({
-      rawDate: d.toISOString().split("T")[0],
+      rawDate,
       dayName: d.toLocaleDateString("en-US", { weekday: "short" }).toUpperCase(),
       dayNum: d.getDate(),
       monthName: d.toLocaleDateString("en-US", { month: "short" }),
@@ -35,940 +42,447 @@ const getNext7Days = () => {
   return days;
 };
 
-const formatDateFriendly = (dateStr: string) => {
-  if (!dateStr) return "";
-  const d = new Date(dateStr);
-  return d.toLocaleDateString("en-US", {
-    weekday: "long",
-    year: "numeric",
-    month: "long",
-    day: "numeric",
-  });
-};
-
-const getOwnerName = (ownerEmail?: string) => {
-  if (!ownerEmail) return "System Admin";
-  const users = JSON.parse(localStorage.getItem("registeredUsers") || "[]");
-  const matched = users.find((u: any) => u.email.trim().toLowerCase() === ownerEmail.trim().toLowerCase());
-  return matched ? matched.username : "Verified Partner";
-};
-
-// Time Slots list
-const TIME_SLOTS = [
-  { id: "s1", time: "06:00 AM - 08:00 AM", period: "Morning" },
-  { id: "s2", time: "08:00 AM - 10:00 AM", period: "Morning" },
-  { id: "s3", time: "10:00 AM - 12:00 PM", period: "Morning" },
-  { id: "s4", time: "12:00 PM - 02:00 PM", period: "Afternoon" },
-  { id: "s5", time: "02:00 PM - 04:00 PM", period: "Afternoon" },
-  { id: "s6", time: "04:00 PM - 06:00 PM", period: "Evening" },
-  { id: "s7", time: "06:00 PM - 08:00 PM", period: "Prime Night" },
-  { id: "s8", time: "08:00 PM - 10:00 PM", period: "Prime Night" },
-];
-
-// Mock booked slots to simulate real schedule
-const MOCK_BOOKED_SLOTS: Record<string, string[]> = {};
-getNext7Days().forEach((day) => {
-  MOCK_BOOKED_SLOTS[day.rawDate] = [
-    TIME_SLOTS[Math.floor(Math.random() * 3)].id,
-    TIME_SLOTS[Math.floor(Math.random() * 3) + 4].id,
-  ];
-});
-
-interface BookingItem {
-  reference: string;
-  turfId: number;
-  turfName: string;
-  date: string;
-  slotTime: string;
-  playerName: string;
-  playerEmail: string;
-  playerPhone: string;
-  amount: number;
-  status: string;
-  paymentMethod: string;
-  timestamp: string;
-}
-
 const TurfBook = () => {
+  const [searchParams] = useSearchParams();
   const navigate = useNavigate();
-  // Load dynamically from localStorage database
-  const [turfs, setTurfs] = useState<TurfItem[]>([]);
+  const { user, isLoggedIn } = useAuth();
 
-  useEffect(() => {
-    const loadTurfs = () => {
-      const local = localStorage.getItem("turfCatalogData");
-      setTurfs(local ? JSON.parse(local) : turfCatalogData);
-    };
-    loadTurfs();
-    window.addEventListener("storage", loadTurfs);
-    const interval = setInterval(loadTurfs, 2000);
-    return () => {
-      window.removeEventListener("storage", loadTurfs);
-      clearInterval(interval);
-    };
-  }, []);
+  const preselectedTurfId = searchParams.get("turfId");
 
-  // Master selection state
-  const [activeTurf, setActiveTurf] = useState<TurfItem | null>(null);
-  const [showAuthRequired, setShowAuthRequired] = useState(false);
-  const [allBookings, setAllBookings] = useState<BookingItem[]>([]);
-
-  // Listing filters states
-  const [searchTerm, setSearchTerm] = useState("");
-  const [selectedSport, setSelectedSport] = useState<string>("All");
-
-  // Booking step states
-  const [bookingStep, setBookingStep] = useState<number>(1);
-  const [bookingDate, setBookingDate] = useState<string>("");
-  const [bookingSlot, setBookingSlot] = useState<{ id: string; time: string } | null>(null);
-  const [activeDetailImage, setActiveDetailImage] = useState<string | null>(null);
-
-  // Player Form state
-  const [playerDetails, setPlayerDetails] = useState({
-    name: "",
-    email: "",
-    phone: "",
-  });
-
-  // Payment state
-  const [paymentMethod, setPaymentMethod] = useState<string>("UPI");
-  const [bookingReference, setBookingReference] = useState<string>("");
+  const [turfs, setTurfs] = useState<Turf[]>([]);
+  const [selectedTurf, setSelectedTurf] = useState<Turf | null>(null);
+  const [loadingTurfs, setLoadingTurfs] = useState(true);
 
   const daysList = getNext7Days();
+  const [selectedDate, setSelectedDate] = useState<string>(daysList[0].rawDate);
 
-  // Reset booking values when returning to catalog list or changing venue
-  const handleResetBooking = () => {
-    setBookingStep(1);
-    setBookingDate("");
-    setBookingSlot(null);
-    setPlayerDetails({ name: "", email: "", phone: "" });
-    setBookingReference("");
-    setActiveDetailImage(null);
-    setActiveTurf(null); // Return to catalog
-  };
+  const [slots, setSlots] = useState<TimeSlot[]>([]);
+  const [loadingSlots, setLoadingSlots] = useState(false);
+  const [selectedSlot, setSelectedSlot] = useState<string | null>(null);
 
+  // Booking process state
+  const [step, setStep] = useState<"SELECT" | "CONFIRM" | "SUCCESS">("SELECT");
+  const [isProcessing, setIsProcessing] = useState(false);
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const [confirmedBooking, setConfirmedBooking] = useState<Booking | null>(null);
+
+  // 1. Load Turfs
   useEffect(() => {
-    const loaded = JSON.parse(localStorage.getItem("bookings") || "[]");
-    setAllBookings(loaded);
-  }, [bookingStep, activeTurf]);
+    const fetchTurfs = async () => {
+      try {
+        setLoadingTurfs(true);
+        const data = await turfService.getAllTurfs();
+        setTurfs(data);
 
-  const handleSelectTurf = (turf: TurfItem) => {
-    const token = localStorage.getItem("userToken");
-    if (!token) {
-      setShowAuthRequired(true);
-    } else {
-      setActiveTurf(turf);
-      handleResetBooking();
-      setActiveDetailImage(turf.images && turf.images.length > 0 ? turf.images[0] : turf.image);
-      const savedEmail = localStorage.getItem("userEmail") || "";
-      const savedName = localStorage.getItem("userName") || "";
-      setPlayerDetails({
-        name: savedName,
-        email: savedEmail,
-        phone: "",
+        if (preselectedTurfId) {
+          const match = data.find((t) => t._id === preselectedTurfId);
+          if (match) setSelectedTurf(match);
+          else if (data.length > 0) setSelectedTurf(data[0]);
+        } else if (data.length > 0) {
+          setSelectedTurf(data[0]);
+        }
+      } catch {
+        setErrorMsg("Failed to load turfs. Please refresh.");
+      } finally {
+        setLoadingTurfs(false);
+      }
+    };
+    fetchTurfs();
+  }, [preselectedTurfId]);
+
+  // 2. Fetch slots whenever selectedTurf or selectedDate changes
+  useEffect(() => {
+    if (!selectedTurf) return;
+    const fetchSlots = async () => {
+      try {
+        setLoadingSlots(true);
+        setSelectedSlot(null);
+        setErrorMsg(null);
+        const availableSlots = await turfService.getAvailableSlots(
+          selectedTurf._id,
+          selectedDate
+        );
+        setSlots(availableSlots);
+      } catch (err: any) {
+        setSlots([]);
+        setErrorMsg(err?.response?.data?.message || "Failed to fetch slot availability.");
+      } finally {
+        setLoadingSlots(false);
+      }
+    };
+    fetchSlots();
+  }, [selectedTurf, selectedDate]);
+
+  // Handle Payment via Razorpay
+  const handleProceedToPayment = async () => {
+    if (!isLoggedIn) {
+      navigate("/login");
+      return;
+    }
+    if (!selectedTurf || !selectedSlot) return;
+
+    setErrorMsg(null);
+    setIsProcessing(true);
+
+    try {
+      // Step 1: Create pending booking & Razorpay order on backend
+      const { booking, razorpayOrder } = await bookingService.createBooking({
+        turfId: selectedTurf._id,
+        bookingDate: selectedDate,
+        startTime: selectedSlot,
       });
-    }
-  };
 
-  const handlePlayerSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (playerDetails.name && playerDetails.email && playerDetails.phone) {
-      setBookingStep(3);
-    }
-  };
+      // Step 2: Load Razorpay script
+      const scriptLoaded = await loadRazorpayScript();
+      if (!scriptLoaded) {
+        throw new Error("Razorpay SDK failed to load. Please check your internet connection.");
+      }
 
-  const handleCheckoutSubmit = () => {
-    const ref = "THB-" + Math.floor(100000 + Math.random() * 900000);
-    setBookingReference(ref);
-    setBookingStep(4);
+      // Step 3: Open Razorpay Modal
+      const options = {
+        key: razorpayOrder.keyId || "rzp_test_TGBaOxpS9AvteF",
+        amount: razorpayOrder.amount,
+        currency: razorpayOrder.currency,
+        name: "TurfHub",
+        description: `Booking for ${selectedTurf.turfName}`,
+        order_id: razorpayOrder.orderId,
+        prefill: {
+          name: user?.fullName || "",
+          email: user?.emailId || "",
+          contact: user?.contactNumber || "",
+        },
+        theme: {
+          color: "#22c55e",
+        },
+        handler: async (response: any) => {
+          try {
+            setIsProcessing(true);
+            // Step 4: Verify payment on backend
+            const confirmed = await bookingService.verifyPayment({
+              bookingId: booking._id,
+              razorpay_order_id: response.razorpay_order_id,
+              razorpay_payment_id: response.razorpay_payment_id,
+              razorpay_signature: response.razorpay_signature,
+            });
 
-    if (activeTurf && bookingDate && bookingSlot) {
-      const activeBookings = JSON.parse(localStorage.getItem("bookings") || "[]");
-      const newBooking = {
-        reference: ref,
-        turfId: activeTurf.id,
-        turfName: activeTurf.name,
-        date: bookingDate,
-        slotTime: bookingSlot.time,
-        playerName: playerDetails.name,
-        playerEmail: playerDetails.email,
-        playerPhone: playerDetails.phone,
-        amount: activeTurf.pricePerHour * 2 + 3.5, // Total with fee
-        status: "Confirmed",
-        paymentMethod: paymentMethod,
-        timestamp: new Date().toISOString(),
+            setConfirmedBooking(confirmed);
+            setStep("SUCCESS");
+          } catch (verifyErr: any) {
+            setErrorMsg(
+              verifyErr?.response?.data?.message || "Payment verification failed. Please contact support."
+            );
+          } finally {
+            setIsProcessing(false);
+          }
+        },
+        modal: {
+          ondismiss: () => {
+            setIsProcessing(false);
+          },
+        },
       };
-      activeBookings.push(newBooking);
-      localStorage.setItem("bookings", JSON.stringify(activeBookings));
+
+      const razorpayInstance = new (window as any).Razorpay(options);
+      razorpayInstance.open();
+    } catch (err: any) {
+      setErrorMsg(
+        err?.response?.data?.message || err.message || "Failed to initialize booking."
+      );
+      setIsProcessing(false);
     }
   };
 
-  // Filter Catalog Data
-  const filteredTurfs = turfs.filter((turf) => {
-    const matchName = turf.name.toLowerCase().includes(searchTerm.toLowerCase());
-    const matchLoc = turf.location.toLowerCase().includes(searchTerm.toLowerCase());
-    const matchSport = selectedSport === "All" || turf.sport === selectedSport;
-    return (matchName || matchLoc) && matchSport;
-  });
+  if (loadingTurfs) {
+    return (
+      <div className="bg-slate-50 dark:bg-slate-950 min-h-screen pt-28 pb-20 flex flex-col items-center justify-center gap-4">
+        <FaSpinner className="text-green-500 text-4xl animate-spin" />
+        <p className="text-slate-500 font-semibold">Loading booking portal...</p>
+      </div>
+    );
+  }
 
   return (
-    <div className="bg-slate-50 text-slate-900 dark:bg-slate-950 dark:text-slate-100 transition-colors duration-500 min-h-screen pt-24 pb-20 px-4 md:px-8">
-      <div className="max-w-7xl mx-auto">
+    <div className="bg-slate-50 dark:bg-slate-950 min-h-screen pt-28 pb-20 transition-colors duration-500">
+      <div className="max-w-7xl mx-auto px-4 md:px-8">
         
-        {/* Title Header */}
-        <div className="text-center mb-12">
-          <span className="text-green-600 dark:text-green-400 font-semibold tracking-widest text-xs uppercase bg-green-500/10 px-3 py-1 rounded-full border border-green-500/20">
-            Booking Dashboard
-          </span>
-          <h1 className="text-4xl md:text-6xl font-black mt-3">
-            Book Your Turf
+        {/* Header */}
+        <motion.div
+          initial={{ opacity: 0, y: -20 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="mb-8"
+        >
+          <h1 className="text-4xl font-black text-slate-800 dark:text-white mb-2">
+            Reserve Your{" "}
+            <span className="bg-gradient-to-r from-green-500 to-emerald-500 bg-clip-text text-transparent">
+              Slot
+            </span>
           </h1>
-          <div className="w-24 h-1 bg-gradient-to-r from-green-500 to-emerald-500 rounded-full mx-auto mt-4" />
-        </div>
+          <p className="text-slate-500 dark:text-slate-400">
+            Select a turf, choose your preferred time, and pay securely via Razorpay
+          </p>
+        </motion.div>
 
-        <AnimatePresence mode="wait">
-          {!activeTurf ? (
-            /* VIEW 1: Venues Grid Catalog Selection */
-            <motion.div
-              key="grid-view"
-              initial={{ opacity: 0, y: 15 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -15 }}
-              transition={{ duration: 0.3 }}
-            >
-              {/* Search & Category Filter Section */}
-              <div className="mb-10 bg-white dark:bg-slate-900/40 backdrop-blur-md border border-slate-200 dark:border-slate-800 p-6 rounded-2xl shadow-[0_8px_30px_rgba(0,0,0,0.02)] flex flex-col md:flex-row gap-4 items-center justify-between">
-                
-                {/* Search field */}
-                <div className="relative w-full md:w-1/2">
-                  <input
-                    type="text"
-                    placeholder="Search by venue name or location..."
-                    value={searchTerm}
-                    onChange={(e) => setSearchTerm(e.target.value)}
-                    className="w-full bg-slate-100 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-slate-850 dark:text-slate-200 py-3 pl-10 pr-4 rounded-xl focus:outline-none focus:ring-1 focus:ring-green-500 transition-all"
-                  />
-                  <div className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400">
-                    <FaSearch />
-                  </div>
-                </div>
+        {errorMsg && (
+          <div className="mb-6 p-4 rounded-2xl bg-red-500/10 border border-red-500/20 text-red-500 font-semibold text-sm flex items-center gap-3">
+            <FaExclamationCircle className="flex-shrink-0 text-lg" />
+            <span>{errorMsg}</span>
+          </div>
+        )}
 
-                {/* Sport selector buttons */}
-                <div className="flex flex-wrap gap-2 justify-center">
-                  {["All", "Cricket", "Football", "Tennis", "Basketball", "Badminton"].map((sport) => (
+        {/* Step 3: SUCCESS Confirmation Receipt */}
+        {step === "SUCCESS" && confirmedBooking && (
+          <motion.div
+            initial={{ opacity: 0, scale: 0.95 }}
+            animate={{ opacity: 1, scale: 1 }}
+            className="max-w-2xl mx-auto bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-8 rounded-3xl shadow-2xl text-center space-y-6"
+          >
+            <div className="w-16 h-16 bg-green-500/10 text-green-500 rounded-full flex items-center justify-center mx-auto text-3xl">
+              <FaCheckCircle />
+            </div>
+
+            <div>
+              <h2 className="text-3xl font-black text-slate-800 dark:text-white mb-1">
+                Booking Confirmed! 🎉
+              </h2>
+              <p className="text-sm text-slate-500 dark:text-slate-400">
+                A confirmation email & SMS has been sent to your registered contact.
+              </p>
+            </div>
+
+            <div className="bg-slate-50 dark:bg-slate-800/40 p-6 rounded-2xl text-left space-y-3 border border-slate-100 dark:border-slate-800 text-sm">
+              <div className="flex justify-between">
+                <span className="text-slate-400">Booking ID:</span>
+                <span className="font-mono font-bold text-slate-800 dark:text-white">{confirmedBooking._id}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-slate-400">Date:</span>
+                <span className="font-bold text-slate-800 dark:text-white">
+                  {new Date(confirmedBooking.bookingDate).toDateString()}
+                </span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-slate-400">Slot Time:</span>
+                <span className="font-bold text-green-500">
+                  {confirmedBooking.startTime} – {confirmedBooking.endTime}
+                </span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-slate-400">Amount Paid:</span>
+                <span className="font-black text-slate-800 dark:text-white">₹{confirmedBooking.totalAmount}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-slate-400">Payment Status:</span>
+                <span className="px-2 py-0.5 rounded-full bg-green-500/10 text-green-500 font-bold text-xs uppercase">
+                  {confirmedBooking.payment.status}
+                </span>
+              </div>
+            </div>
+
+            <div className="flex gap-4">
+              <Link
+                to="/profile"
+                className="flex-1 py-3.5 bg-green-500 hover:bg-green-600 text-white font-bold rounded-xl transition text-center text-sm shadow-md shadow-green-500/20"
+              >
+                View My Reservations
+              </Link>
+              <button
+                onClick={() => {
+                  setStep("SELECT");
+                  setConfirmedBooking(null);
+                  setSelectedSlot(null);
+                }}
+                className="flex-1 py-3.5 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 font-bold rounded-xl transition text-sm"
+              >
+                Book Another Slot
+              </button>
+            </div>
+          </motion.div>
+        )}
+
+        {/* Step 1 & 2: Selection & Confirmation Flow */}
+        {step !== "SUCCESS" && (
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+            
+            {/* Left Column: Turf Selector & Slot Picker */}
+            <div className="lg:col-span-2 space-y-6">
+              
+              {/* Turf Selector Dropdown */}
+              <div className="bg-white dark:bg-slate-900 p-6 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm space-y-3">
+                <label className="block text-xs font-bold uppercase tracking-wider text-slate-400">
+                  Select Sports Facility
+                </label>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  {turfs.map((turf) => (
                     <button
-                      key={sport}
-                      onClick={() => setSelectedSport(sport)}
-                      className={`px-4 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer ${
-                        selectedSport === sport
-                          ? "bg-green-500 text-white shadow-md"
-                          : "bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700"
+                      key={turf._id}
+                      onClick={() => setSelectedTurf(turf)}
+                      className={`p-4 rounded-2xl border text-left transition cursor-pointer flex items-center gap-3 ${
+                        selectedTurf?._id === turf._id
+                          ? "border-green-500 bg-green-500/5 ring-2 ring-green-500/20"
+                          : "border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 hover:border-green-500/40"
                       }`}
                     >
-                      {sport}
+                      <div className="w-12 h-12 rounded-xl overflow-hidden flex-shrink-0 bg-slate-800">
+                        <img
+                          src={turf.images?.[0]?.url || "https://images.unsplash.com/photo-1575361204480-aadea25e6e68?w=300&auto=format&fit=crop&q=80"}
+                          alt={turf.turfName}
+                          className="w-full h-full object-cover"
+                        />
+                      </div>
+                      <div className="overflow-hidden">
+                        <h4 className="font-bold text-slate-800 dark:text-white text-sm truncate">{turf.turfName}</h4>
+                        <p className="text-xs text-slate-400 truncate">{turf.location.city}</p>
+                        <p className="text-xs font-black text-green-500 mt-0.5">₹{turf.pricePerSlot}/slot</p>
+                      </div>
                     </button>
                   ))}
                 </div>
               </div>
 
-              {/* Selection cards grid */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
-                {filteredTurfs.map((turf) => (
-                  <Tilt key={turf.id} className="h-full">
-                    <div className="group h-full bg-white dark:bg-slate-900/40 backdrop-blur-md border border-slate-200 dark:border-slate-800 hover:border-green-500/30 dark:hover:border-green-500/30 rounded-2xl overflow-hidden shadow-[0_8px_30px_rgba(0,0,0,0.03)] dark:shadow-[0_10px_30px_rgba(0,0,0,0.3)] transition-all duration-300 flex flex-col justify-between">
-                      
-                      {/* Image panel */}
-                      <div className="relative h-48 w-full overflow-hidden">
-                        <img
-                          src={turf.image}
-                          alt={turf.name}
-                          className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-750"
-                        />
-                        <div className="absolute top-4 right-4 bg-white/90 dark:bg-slate-950/80 backdrop-blur-md border border-slate-200 dark:border-slate-700 text-green-600 dark:text-green-400 font-bold px-3 py-1 rounded-full text-xs">
-                          ${turf.pricePerHour}/hr
-                        </div>
-                        <div className="absolute top-4 left-4 bg-slate-950/80 text-white border border-slate-700 px-3.5 py-1 rounded-full text-xs font-bold uppercase tracking-wider">
-                          {turf.sport}
-                        </div>
-                        {/* Owner Badge */}
-                        <div className="absolute bottom-4 left-4 bg-slate-950/80 backdrop-blur-md text-white border border-slate-750 px-2.5 py-1 rounded-xl text-[10px] font-extrabold flex items-center gap-1.5 shadow-md">
-                          <div className="w-1.5 h-1.5 bg-green-500 rounded-full animate-pulse" />
-                          <span>Owner: {getOwnerName(turf.ownerId)}</span>
-                        </div>
-                      </div>
-
-                      {/* Info Details */}
-                      <div className="p-5 flex-grow flex flex-col justify-between">
-                        <div>
-                          <h3 className="text-lg font-bold text-slate-805 dark:text-white mb-2 line-clamp-1">
-                            {turf.name}
-                          </h3>
-                          <div className="flex items-center gap-1.5 text-slate-500 dark:text-slate-400 text-xs mb-4">
-                            <FaMapMarkerAlt className="text-green-500 flex-shrink-0" />
-                            <span className="line-clamp-1">{turf.location}</span>
-                          </div>
-                        </div>
-
-                        {/* Booking triggering action */}
-                        <div className="flex items-center justify-between border-t border-slate-100 dark:border-slate-800 pt-4 mt-auto">
-                          <div className="flex items-center gap-1 bg-yellow-500/10 border border-yellow-500/20 px-2.5 py-1 rounded-lg text-yellow-600 dark:text-yellow-400 text-xs font-semibold">
-                            <FaStar className="fill-current" />
-                            <span>{turf.rating.toFixed(1)}</span>
-                          </div>
-                          
-                          <button
-                            onClick={() => handleSelectTurf(turf)}
-                            className="bg-green-500 hover:bg-green-600 text-white text-xs font-bold py-2.5 px-4.5 rounded-xl shadow-md transition cursor-pointer"
-                          >
-                            Select & Book
-                          </button>
-                        </div>
-                      </div>
-
-                    </div>
-                  </Tilt>
-                ))}
+              {/* Date Picker (Next 7 days) */}
+              <div className="bg-white dark:bg-slate-900 p-6 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm space-y-3">
+                <label className="block text-xs font-bold uppercase tracking-wider text-slate-400">
+                  Select Date
+                </label>
+                <div className="grid grid-cols-4 sm:grid-cols-7 gap-2">
+                  {daysList.map((day) => (
+                    <button
+                      key={day.rawDate}
+                      onClick={() => setSelectedDate(day.rawDate)}
+                      className={`p-3 rounded-2xl border text-center transition cursor-pointer flex flex-col items-center ${
+                        selectedDate === day.rawDate
+                          ? "border-green-500 bg-green-500 text-white shadow-md shadow-green-500/20 font-bold"
+                          : "border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 text-slate-700 dark:text-slate-300 hover:border-green-500/40"
+                      }`}
+                    >
+                      <span className="text-[10px] uppercase font-bold tracking-wider opacity-80">{day.dayName}</span>
+                      <span className="text-lg font-black">{day.dayNum}</span>
+                      <span className="text-[10px] opacity-80">{day.monthName}</span>
+                    </button>
+                  ))}
+                </div>
               </div>
 
-              {filteredTurfs.length === 0 && (
-                <div className="text-center py-20 bg-white dark:bg-slate-900/20 border border-dashed border-slate-200 dark:border-slate-800 rounded-3xl">
-                  <p className="text-slate-450 dark:text-slate-500 font-semibold mb-2">No turf matches your query filters.</p>
-                  <button
-                    onClick={() => {
-                      setSearchTerm("");
-                      setSelectedSport("All");
-                    }}
-                    className="text-green-500 font-bold hover:underline"
-                  >
-                    Reset List
-                  </button>
-                </div>
-              )}
-            </motion.div>
-          ) : (
-            /* VIEW 2: Selected Turf Split Screen Booking Flow */
-            <motion.div
-              key="split-view"
-              initial={{ opacity: 0, scale: 0.98 }}
-              animate={{ opacity: 1, scale: 1 }}
-              exit={{ opacity: 0, scale: 0.98 }}
-              transition={{ duration: 0.3 }}
-            >
-              {/* Back to list trigger button */}
-              <button
-                onClick={() => setActiveTurf(null)}
-                className="mb-8 flex items-center gap-2 text-sm font-bold text-slate-500 hover:text-green-500 dark:text-slate-400 dark:hover:text-green-400 transition cursor-pointer"
-              >
-                <FaArrowLeft className="text-xs" />
-                <span>Change Venue / Return to Catalog</span>
-              </button>
-
-              {/* Split Screen Grid */}
-              <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
-                
-                {/* Left Panel: Specifications */}
-                <div className="lg:col-span-5 bg-white dark:bg-slate-900/40 backdrop-blur-md border border-slate-200 dark:border-slate-800 rounded-3xl p-6 shadow-[0_8px_30px_rgba(0,0,0,0.02)]">
-                  {/* Photo Preview */}
-                  <div className="relative h-64 w-full overflow-hidden rounded-2xl mb-4 border border-slate-100 dark:border-slate-855">
-                    <img
-                      src={activeDetailImage || activeTurf.image}
-                      alt={activeTurf.name}
-                      className="w-full h-full object-cover transition-all duration-500"
-                    />
-                    <div className="absolute top-4 right-4 bg-white/95 dark:bg-slate-950/80 backdrop-blur-md border border-slate-200 dark:border-slate-700 text-green-600 dark:text-green-400 font-extrabold px-3.5 py-1.5 rounded-full text-sm">
-                      ${activeTurf.pricePerHour}/hr
-                    </div>
-                    <div className="absolute top-4 left-4 bg-slate-950/80 text-white border border-slate-700 px-3.5 py-1.5 rounded-full text-xs font-bold uppercase tracking-wider">
-                      {activeTurf.sport}
-                    </div>
-                    {/* Owner Badge */}
-                    <div className="absolute bottom-4 left-4 bg-slate-950/80 backdrop-blur-md text-white border border-slate-750 px-3 py-1.5 rounded-xl text-[10px] font-extrabold flex items-center gap-1.5 shadow-md">
-                      <div className="w-1.5 h-1.5 bg-green-500 rounded-full animate-pulse" />
-                      <span>Owner: {getOwnerName(activeTurf.ownerId)}</span>
-                    </div>
-                  </div>
-
-                  {/* Thumbnails if multiple images exist */}
-                  {activeTurf.images && activeTurf.images.length > 1 && (
-                    <div className="flex gap-2 mb-6 overflow-x-auto pb-2 scrollbar-none">
-                      {activeTurf.images.map((imgUrl: string, idx: number) => (
-                        <button
-                          key={idx}
-                          onClick={() => setActiveDetailImage(imgUrl)}
-                          className={`relative w-16 aspect-video rounded-lg overflow-hidden border-2 cursor-pointer flex-shrink-0 transition-all ${
-                            (activeDetailImage || activeTurf.image) === imgUrl
-                              ? "border-green-500 scale-105"
-                              : "border-slate-200 dark:border-slate-800 opacity-60 hover:opacity-100"
-                          }`}
-                        >
-                          <img src={imgUrl} alt="Thumbnail" className="w-full h-full object-cover" />
-                        </button>
-                      ))}
-                    </div>
-                  )}
-
-                  <h2 className="text-2xl font-black text-slate-800 dark:text-white mb-2">
-                    {activeTurf.name}
-                  </h2>
-                  <div className="flex items-center gap-2 text-slate-500 dark:text-slate-400 text-sm mb-4">
-                    <FaMapMarkerAlt className="text-green-500 flex-shrink-0" />
-                    <span>{activeTurf.location}</span>
-                  </div>
-
-                  <div className="flex items-center gap-1.5 bg-yellow-500/10 border border-yellow-500/20 px-3 py-1.5 rounded-xl text-yellow-600 dark:text-yellow-400 text-sm font-bold w-fit mb-6">
-                    <FaStar className="fill-current" />
-                    <span>{activeTurf.rating.toFixed(1)} Ratings</span>
-                  </div>
-
-                  <h4 className="text-sm font-black uppercase tracking-wider text-slate-400 mb-3">
-                    Venue Overview
-                  </h4>
-                  <p className="text-slate-500 dark:text-slate-400 text-sm leading-relaxed mb-6">
-                    This verified premium turf venue features international standard multi-sport turf grass, professional-grade lighting arrays, high border nets, and excellent field rebound properties. Suitable for friendly club match events and corporate tournament operations.
-                  </p>
-
-                  <h4 className="text-sm font-black uppercase tracking-wider text-slate-400 mb-3">
-                    Included Amenities
-                  </h4>
-                  <div className="grid grid-cols-2 gap-2">
-                    {activeTurf.amenities.map((amenity, idx) => (
-                      <div
-                        key={idx}
-                        className="flex items-center gap-2 bg-slate-50 dark:bg-slate-950/50 border border-slate-100 dark:border-slate-800/80 px-3 py-2.5 rounded-xl text-xs text-slate-600 dark:text-slate-400"
-                      >
-                        <div className="w-2 h-2 rounded-full bg-green-500" />
-                        <span className="font-semibold">{amenity}</span>
-                      </div>
-                    ))}
-                  </div>
+              {/* Slot Picker */}
+              <div className="bg-white dark:bg-slate-900 p-6 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm space-y-4">
+                <div className="flex items-center justify-between">
+                  <label className="block text-xs font-bold uppercase tracking-wider text-slate-400">
+                    Available Time Slots ({selectedTurf?.slotDuration || 60} mins)
+                  </label>
+                  <span className="text-xs text-slate-400 font-semibold">
+                    {slots.filter((s) => s.isAvailable).length} available
+                  </span>
                 </div>
 
-                {/* Right Panel: Inline Booking Card Wizard */}
-                <div className="lg:col-span-7 bg-white dark:bg-slate-900/40 backdrop-blur-md border border-slate-200 dark:border-slate-800 rounded-3xl overflow-hidden shadow-[0_12px_40px_rgba(0,0,0,0.03)] flex flex-col justify-between min-h-[580px]">
-                  
-                  {/* Progress Header */}
-                  <div className="p-6 border-b border-slate-100 dark:border-slate-900 bg-slate-50/50 dark:bg-slate-950/20 flex items-center justify-between">
-                    <div>
-                      <h3 className="text-lg font-black text-slate-800 dark:text-white">
-                        Reservation Progress
-                      </h3>
-                      <p className="text-xs text-slate-400 dark:text-slate-500 font-semibold mt-1">
-                        Step {bookingStep} of 4 • {bookingStep === 1 ? "Slot Picker" : bookingStep === 2 ? "Player Details" : bookingStep === 3 ? "Payment Review" : "Ticket Confirmation"}
-                      </p>
-                    </div>
-                    
-                    {/* Bubbles */}
-                    <div className="flex gap-1.5">
-                      {[1, 2, 3, 4].map((step) => (
-                        <div
-                          key={step}
-                          className={`w-2.5 h-2.5 rounded-full transition-all duration-300 ${
-                            bookingStep === step
-                              ? "bg-green-500 scale-110"
-                              : bookingStep > step
-                              ? "bg-emerald-600/80"
-                              : "bg-slate-200 dark:bg-slate-800"
-                          }`}
-                        />
-                      ))}
-                    </div>
+                {loadingSlots ? (
+                  <div className="flex items-center justify-center py-12 gap-3 text-slate-400 font-semibold text-sm">
+                    <FaSpinner className="animate-spin text-green-500" /> Fetching slots...
                   </div>
-
-                  {/* Step Panels */}
-                  <div className="p-6 flex-grow">
-                    <AnimatePresence mode="wait">
-                      
-                      {/* Step 1: Slots picker */}
-                      {bookingStep === 1 && (
-                        <motion.div
-                          key="wizard-step1"
-                          initial={{ opacity: 0, x: 20 }}
-                          animate={{ opacity: 1, x: 0 }}
-                          exit={{ opacity: 0, x: -20 }}
-                          className="space-y-6"
-                        >
-                          {/* Days grid */}
-                          <div>
-                            <label className="block text-xs font-black uppercase tracking-wider text-slate-400 mb-3">
-                              1. Select Date
-                            </label>
-                            <div className="grid grid-cols-4 sm:grid-cols-7 gap-2">
-                              {daysList.map((day) => (
-                                <button
-                                  key={day.rawDate}
-                                  onClick={() => {
-                                    setBookingDate(day.rawDate);
-                                    setBookingSlot(null);
-                                  }}
-                                  className={`flex flex-col items-center justify-center p-3 rounded-xl border text-center transition cursor-pointer ${
-                                    bookingDate === day.rawDate
-                                      ? "bg-green-500 border-green-500 text-white shadow-md shadow-green-500/10"
-                                      : "bg-slate-50 dark:bg-slate-900 border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-105"
-                                  }`}
-                                >
-                                  <span className="text-[9px] font-bold uppercase tracking-wide opacity-80">
-                                    {day.dayName}
-                                  </span>
-                                  <span className="text-2xl font-black my-0.5">
-                                    {day.dayNum}
-                                  </span>
-                                  <span className={`text-[8px] font-bold uppercase tracking-wider opacity-90 transition-colors ${
-                                    bookingDate === day.rawDate
-                                      ? "text-green-100"
-                                      : "text-green-600 dark:text-green-400"
-                                  }`}>
-                                    {day.monthName} {day.year}
-                                  </span>
-                                </button>
-                              ))}
-                            </div>
-                          </div>
-
-                          {/* Time grid */}
-                          {bookingDate && (
-                            <div>
-                              <label className="block text-xs font-black uppercase tracking-wider text-slate-400 mb-3">
-                                2. Choose Available Time Slot
-                              </label>
-                              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                                {TIME_SLOTS.map((slot) => {
-                                  const isBooked =
-                                    (MOCK_BOOKED_SLOTS[bookingDate]?.includes(slot.id)) ||
-                                    allBookings.some(
-                                      (b) =>
-                                        b.turfId === activeTurf?.id &&
-                                        b.date === bookingDate &&
-                                        b.slotTime === slot.time &&
-                                        b.status === "Confirmed"
-                                    );
-                                  const isSelected = bookingSlot?.id === slot.id;
-
-                                  return (
-                                    <button
-                                      key={slot.id}
-                                      disabled={isBooked}
-                                      onClick={() => setBookingSlot({ id: slot.id, time: slot.time })}
-                                      className={`flex flex-col items-start p-4 rounded-xl border text-left transition cursor-pointer ${
-                                        isBooked
-                                          ? "bg-slate-100 dark:bg-slate-900/30 border-slate-200/50 dark:border-slate-900 text-slate-300 dark:text-slate-750 cursor-not-allowed"
-                                          : isSelected
-                                          ? "bg-green-500 border-green-500 text-white shadow-md shadow-green-500/10"
-                                          : "bg-slate-50 dark:bg-slate-900 border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800/80"
-                                      }`}
-                                    >
-                                      <span className={`text-[9px] font-black uppercase tracking-wide px-1.5 py-0.5 rounded-full mb-2 ${
-                                        isBooked
-                                          ? "bg-slate-250 dark:bg-slate-900 text-slate-400 dark:text-slate-600"
-                                          : isSelected
-                                          ? "bg-white/20 text-white"
-                                          : "bg-green-500/10 dark:bg-green-500/20 text-green-600 dark:text-green-400"
-                                      }`}>
-                                        {isBooked ? "Booked" : slot.period}
-                                      </span>
-                                      <span className="text-sm font-bold">{slot.time}</span>
-                                    </button>
-                                  );
-                                })}
-                              </div>
-                            </div>
-                          )}
-
-                          {bookingSlot && (
-                            <div className="bg-green-500/5 dark:bg-green-500/5 border border-green-500/10 dark:border-green-500/20 p-4 rounded-2xl flex items-center justify-between text-sm animate-in fade-in slide-in-from-bottom-2 duration-305 mt-4">
-                              <div className="flex flex-col">
-                                <span className="font-bold text-slate-700 dark:text-slate-355 text-xs uppercase tracking-wider mb-0.5">Booking Amount</span>
-                                <span className="text-slate-400 dark:text-slate-500 text-[10px]">2 Hours Slot at ${activeTurf.pricePerHour}/hr</span>
-                              </div>
-                              <span className="text-green-600 dark:text-green-400 font-black text-xl">
-                                ${activeTurf.pricePerHour * 2}.00
-                              </span>
-                            </div>
-                          )}
-                        </motion.div>
-                      )}
-
-                      {/* Step 2: User details form */}
-                      {bookingStep === 2 && (
-                        <motion.div
-                          key="wizard-step2"
-                          initial={{ opacity: 0, x: 20 }}
-                          animate={{ opacity: 1, x: 0 }}
-                          exit={{ opacity: 0, x: -20 }}
-                        >
-                          <form onSubmit={handlePlayerSubmit} className="space-y-5">
-                            <h4 className="text-lg font-bold text-slate-800 dark:text-white mb-4">
-                              Enter Player Information
-                            </h4>
-
-                            {/* Full Name */}
-                            <div>
-                              <label className="block text-xs font-bold uppercase tracking-wider text-slate-400 mb-2">
-                                Full Name
-                              </label>
-                              <div className="relative">
-                                <input
-                                  required
-                                  type="text"
-                                  placeholder="Enter player name"
-                                  value={playerDetails.name}
-                                  onChange={(e) => setPlayerDetails({ ...playerDetails, name: e.target.value })}
-                                  className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-800 dark:text-slate-200 py-3.5 pl-10 pr-4 rounded-xl focus:outline-none focus:ring-1 focus:ring-green-500 transition-all"
-                                />
-                                <div className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400">
-                                  <FaUser />
-                                </div>
-                              </div>
-                            </div>
-
-                            {/* Email */}
-                            <div>
-                              <label className="block text-xs font-bold uppercase tracking-wider text-slate-400 mb-2">
-                                Email Address
-                              </label>
-                              <div className="relative">
-                                <input
-                                  required
-                                  type="email"
-                                  placeholder="name@email.com"
-                                  value={playerDetails.email}
-                                  onChange={(e) => setPlayerDetails({ ...playerDetails, email: e.target.value })}
-                                  className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-800 dark:text-slate-200 py-3.5 pl-10 pr-4 rounded-xl focus:outline-none focus:ring-1 focus:ring-green-500 transition-all"
-                                />
-                                <div className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400">
-                                  <FaEnvelope />
-                                </div>
-                              </div>
-                            </div>
-
-                            {/* Phone */}
-                            <div>
-                              <label className="block text-xs font-bold uppercase tracking-wider text-slate-400 mb-2">
-                                Phone Number
-                              </label>
-                              <div className="relative">
-                                <input
-                                  required
-                                  type="tel"
-                                  placeholder="10-digit number"
-                                  pattern="[0-9]{10}"
-                                  value={playerDetails.phone}
-                                  onChange={(e) => setPlayerDetails({ ...playerDetails, phone: e.target.value })}
-                                  className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-800 dark:text-slate-200 py-3.5 pl-10 pr-4 rounded-xl focus:outline-none focus:ring-1 focus:ring-green-500 transition-all"
-                                />
-                                <div className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400">
-                                  <FaPhone />
-                                </div>
-                              </div>
-                            </div>
-
-                            <button type="submit" id="submitFormButton" className="hidden" />
-                          </form>
-                        </motion.div>
-                      )}
-
-                      {/* Step 3: Checkout payment */}
-                      {bookingStep === 3 && (
-                        <motion.div
-                          key="wizard-step3"
-                          initial={{ opacity: 0, x: 20 }}
-                          animate={{ opacity: 1, x: 0 }}
-                          exit={{ opacity: 0, x: -20 }}
-                          className="space-y-6"
-                        >
-                          <h4 className="text-lg font-bold text-slate-800 dark:text-white mb-4">
-                            Review & Confirm Payment
-                          </h4>
-
-                          {/* Invoice review card */}
-                          <div className="bg-slate-50 dark:bg-slate-900/60 border border-slate-100 dark:border-slate-800/80 p-5 rounded-2xl space-y-3.5 text-sm">
-                            <div className="flex justify-between">
-                              <span className="text-slate-400 dark:text-slate-500 font-semibold">Turf Venue:</span>
-                              <span className="font-extrabold text-slate-800 dark:text-white">{activeTurf.name}</span>
-                            </div>
-                            <div className="flex justify-between">
-                              <span className="text-slate-400 dark:text-slate-500 font-semibold">Date booked:</span>
-                              <span className="font-extrabold text-slate-800 dark:text-white">{formatDateFriendly(bookingDate)}</span>
-                            </div>
-                            <div className="flex justify-between">
-                              <span className="text-slate-400 dark:text-slate-500 font-semibold">Time Slot:</span>
-                              <span className="font-extrabold text-slate-800 dark:text-white">{bookingSlot?.time}</span>
-                            </div>
-                            <div className="flex justify-between">
-                              <span className="text-slate-400 dark:text-slate-500 font-semibold">Player name:</span>
-                              <span className="font-extrabold text-slate-800 dark:text-white">{playerDetails.name}</span>
-                            </div>
-                            
-                            <hr className="border-slate-200/60 dark:border-slate-800" />
-                            
-                            <div className="flex justify-between">
-                              <span className="text-slate-400 dark:text-slate-500 font-semibold">Hourly Rate:</span>
-                              <span className="font-bold text-slate-800 dark:text-white">${activeTurf.pricePerHour}.00</span>
-                            </div>
-                            <div className="flex justify-between">
-                              <span className="text-slate-400 dark:text-slate-500 font-semibold">Hours:</span>
-                              <span className="font-bold text-slate-800 dark:text-white">2 hrs</span>
-                            </div>
-                            <div className="flex justify-between">
-                              <span className="text-slate-400 dark:text-slate-500 font-semibold">Convenience Fee:</span>
-                              <span className="font-bold text-slate-800 dark:text-white">$3.50</span>
-                            </div>
-                            
-                            <hr className="border-slate-200/60 dark:border-slate-800" />
-                            
-                            <div className="flex justify-between text-base font-black">
-                              <span className="text-slate-800 dark:text-white">Total Amount:</span>
-                              <span className="text-green-600 dark:text-green-400">${activeTurf.pricePerHour * 2 + 3.50}</span>
-                            </div>
-                          </div>
-
-                          {/* Payment select */}
-                          <div>
-                            <label className="block text-xs font-bold uppercase tracking-wider text-slate-400 mb-3">
-                              Select Payment Method
-                            </label>
-                            <div className="grid grid-cols-3 gap-3">
-                              {["UPI", "Credit Card", "Net Banking"].map((method) => (
-                                <button
-                                  key={method}
-                                  onClick={() => setPaymentMethod(method)}
-                                  className={`py-3 px-4 rounded-xl border font-bold text-xs transition cursor-pointer text-center ${
-                                    paymentMethod === method
-                                      ? "bg-green-500 border-green-500 text-white shadow-md shadow-green-500/10"
-                                      : "bg-slate-50 dark:bg-slate-900 border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800/80"
-                                  }`}
-                                >
-                                  {method}
-                                </button>
-                              ))}
-                            </div>
-                          </div>
-                        </motion.div>
-                      )}
-
-                      {/* Step 4: Digital ticket */}
-                      {bookingStep === 4 && (
-                        <motion.div
-                          key="wizard-step4"
-                          initial={{ opacity: 0, scale: 0.95 }}
-                          animate={{ opacity: 1, scale: 1 }}
-                          className="flex flex-col items-center text-center py-4"
-                        >
-                          <div className="w-14 h-14 bg-green-500/10 border border-green-500/20 text-green-500 dark:text-green-400 rounded-full flex items-center justify-center text-2xl mb-4">
-                            <FaCheckCircle className="animate-bounce" />
-                          </div>
-
-                          <h4 className="text-2xl font-black text-slate-800 dark:text-white">
-                            Reservation Successful!
-                          </h4>
-                          <p className="text-slate-400 dark:text-slate-500 text-xs mt-1 max-w-xs">
-                            Receipt has been finalized. Save details for venue check-in.
-                          </p>
-
-                          {/* Ticket detail coupon block */}
-                          <div className="w-full mt-6 bg-slate-50 dark:bg-slate-900/60 border border-slate-200 dark:border-slate-800 rounded-3xl p-6 relative overflow-hidden shadow-md">
-                            
-                            <div className="absolute top-1/2 -left-3 w-6 h-6 bg-white dark:bg-slate-950 rounded-full border border-slate-200 dark:border-slate-900 -translate-y-1/2" />
-                            <div className="absolute top-1/2 -right-3 w-6 h-6 bg-white dark:bg-slate-950 rounded-full border border-slate-200 dark:border-slate-900 -translate-y-1/2" />
-
-                            <div className="space-y-3.5 text-left text-xs">
-                              <div className="flex justify-between">
-                                <span className="text-slate-400 font-semibold uppercase tracking-wider">Booking Reference</span>
-                                <span className="font-extrabold text-slate-800 dark:text-white">{bookingReference}</span>
-                              </div>
-                              <div className="flex justify-between">
-                                <span className="text-slate-400 font-semibold uppercase tracking-wider">Pitch Venue</span>
-                                <span className="font-extrabold text-slate-800 dark:text-white line-clamp-1">{activeTurf.name}</span>
-                              </div>
-                              <div className="flex justify-between">
-                                <span className="text-slate-400 font-semibold uppercase tracking-wider">Date</span>
-                                <span className="font-extrabold text-slate-800 dark:text-white">{formatDateFriendly(bookingDate)}</span>
-                              </div>
-                              <div className="flex justify-between">
-                                <span className="text-slate-400 font-semibold uppercase tracking-wider">Time Slot</span>
-                                <span className="font-extrabold text-slate-800 dark:text-white">{bookingSlot?.time}</span>
-                              </div>
-                              <div className="flex justify-between">
-                                <span className="text-slate-400 font-semibold uppercase tracking-wider">Player Name</span>
-                                <span className="font-extrabold text-slate-800 dark:text-white">{playerDetails.name}</span>
-                              </div>
-                              <div className="flex justify-between">
-                                <span className="text-slate-400 font-semibold uppercase tracking-wider">Amount Paid</span>
-                                <span className="font-extrabold text-green-600 dark:text-green-400">${activeTurf.pricePerHour * 2 + 3.50}</span>
-                              </div>
-                            </div>
-
-                            <div className="my-5 border-t-2 border-dashed border-slate-200 dark:border-slate-800" />
-
-                            {/* QR Code SVG */}
-                            <div className="flex flex-col items-center">
-                              <div className="p-3.5 bg-white border border-slate-100 rounded-2xl shadow-sm mb-2.5">
-                                <svg className="w-20 h-20 text-slate-850" viewBox="0 0 100 100">
-                                  <rect x="10" y="10" width="25" height="25" stroke="currentColor" strokeWidth="5" fill="none" />
-                                  <rect x="15" y="15" width="15" height="15" fill="currentColor" />
-                                  <rect x="65" y="10" width="25" height="25" stroke="currentColor" strokeWidth="5" fill="none" />
-                                  <rect x="70" y="15" width="15" height="15" fill="currentColor" />
-                                  <rect x="10" y="65" width="25" height="25" stroke="currentColor" strokeWidth="5" fill="none" />
-                                  <rect x="15" y="70" width="15" height="15" fill="currentColor" />
-                                  
-                                  <rect x="45" y="15" width="10" height="10" fill="currentColor" />
-                                  <rect x="40" y="30" width="15" height="10" fill="currentColor" />
-                                  <rect x="15" y="45" width="15" height="10" fill="currentColor" />
-                                  <rect x="45" y="45" width="20" height="20" fill="currentColor" />
-                                  <rect x="75" y="45" width="15" height="15" fill="currentColor" />
-                                  <rect x="45" y="75" width="15" height="15" fill="currentColor" />
-                                  <rect x="70" y="70" width="10" height="15" fill="currentColor" />
-                                </svg>
-                              </div>
-                              <span className="text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-widest">
-                                Scan to check-in
-                              </span>
-                            </div>
-
-                          </div>
-                        </motion.div>
-                      )}
-
-                    </AnimatePresence>
-                  </div>
-
-                  {/* Actions buttons control at the bottom */}
-                  <div className="p-6 border-t border-slate-100 dark:border-slate-900 bg-slate-50/50 dark:bg-slate-950/20 flex gap-4">
-                    {bookingStep === 1 && (
+                ) : slots.length === 0 ? (
+                  <p className="text-slate-400 text-sm text-center py-8">No slots found for this date.</p>
+                ) : (
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                    {slots.map((slot) => (
                       <button
-                        disabled={!bookingDate || !bookingSlot}
-                        onClick={() => setBookingStep(2)}
-                        className={`w-full py-3.5 px-4 rounded-xl font-bold transition flex items-center justify-center gap-2 text-sm shadow-md cursor-pointer ${
-                          !bookingDate || !bookingSlot
-                            ? "bg-slate-200 dark:bg-slate-800 text-slate-400 dark:text-slate-650 shadow-none cursor-not-allowed"
-                            : "bg-green-500 text-white shadow-green-500/10 hover:bg-green-600"
+                        key={slot.startTime}
+                        disabled={!slot.isAvailable}
+                        onClick={() => setSelectedSlot(slot.startTime)}
+                        className={`py-3.5 px-3 rounded-xl border text-xs font-bold transition flex items-center justify-center gap-1.5 cursor-pointer ${
+                          !slot.isAvailable
+                            ? "bg-slate-100 dark:bg-slate-950/40 border-slate-200/50 dark:border-slate-850 text-slate-300 dark:text-slate-700 cursor-not-allowed line-through"
+                            : selectedSlot === slot.startTime
+                            ? "bg-green-500 text-white border-green-500 shadow-md shadow-green-500/20"
+                            : "bg-slate-50 dark:bg-slate-950 border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300 hover:border-green-500/40"
                         }`}
                       >
-                        <span>Continue to Details</span>
-                        <FaArrowRight className="text-xs" />
+                        <FaClock className="text-[10px]" />
+                        <span>{slot.startTime}</span>
                       </button>
-                    )}
-
-                    {bookingStep === 2 && (
-                      <>
-                        <button
-                          onClick={() => setBookingStep(1)}
-                          className="w-1/3 py-3.5 px-4 rounded-xl border border-slate-200 dark:border-slate-800 font-bold text-slate-600 dark:text-slate-450 hover:bg-slate-100 dark:hover:bg-slate-900 transition flex items-center justify-center gap-2 text-sm cursor-pointer"
-                        >
-                          <FaArrowLeft className="text-xs" />
-                          <span>Back</span>
-                        </button>
-                        <button
-                          onClick={() => {
-                            const submitBtn = document.getElementById("submitFormButton");
-                            if (submitBtn) submitBtn.click();
-                          }}
-                          className="w-2/3 py-3.5 px-4 rounded-xl bg-green-500 hover:bg-green-600 text-white font-bold transition flex items-center justify-center gap-2 text-sm shadow-md shadow-green-500/10 cursor-pointer"
-                        >
-                          <span>Proceed to Payment</span>
-                          <FaArrowRight className="text-xs" />
-                        </button>
-                      </>
-                    )}
-
-                    {bookingStep === 3 && (
-                      <>
-                        <button
-                          onClick={() => setBookingStep(2)}
-                          className="w-1/3 py-3.5 px-4 rounded-xl border border-slate-200 dark:border-slate-800 font-bold text-slate-600 dark:text-slate-450 hover:bg-slate-100 dark:hover:bg-slate-900 transition flex items-center justify-center gap-2 text-sm cursor-pointer"
-                        >
-                          <FaArrowLeft className="text-xs" />
-                          <span>Back</span>
-                        </button>
-                        <button
-                          onClick={handleCheckoutSubmit}
-                          className="w-2/3 py-3.5 px-4 rounded-xl bg-green-500 hover:bg-green-600 text-white font-bold transition flex items-center justify-center gap-2 text-sm shadow-md shadow-green-500/15 cursor-pointer"
-                        >
-                          <span>Pay & Confirm Booking</span>
-                          <FaCheckCircle className="text-xs" />
-                        </button>
-                      </>
-                    )}
-
-                    {bookingStep === 4 && (
-                      <div className="w-full flex flex-col gap-3">
-                        <button
-                          onClick={() => navigate("/profile")}
-                          className="w-full py-3.5 px-4 rounded-xl bg-green-500 hover:bg-green-600 text-white font-bold transition flex items-center justify-center gap-2 text-sm shadow-md shadow-green-500/10 cursor-pointer"
-                        >
-                          <FaClipboardList />
-                          <span>View My Bookings</span>
-                        </button>
-                        <div className="flex gap-3">
-                          <button
-                            onClick={() => alert("Digital ticket PDF downloaded! (Mock)")}
-                            className="w-1/2 py-3.5 px-4 rounded-xl border border-slate-200 dark:border-slate-800 flex items-center justify-center gap-2 font-bold text-slate-700 dark:text-slate-350 hover:bg-slate-100 dark:hover:bg-slate-900 transition text-sm cursor-pointer"
-                          >
-                            <FaDownload />
-                            <span>Download Ticket</span>
-                          </button>
-                          <button
-                            onClick={handleResetBooking}
-                            className="w-1/2 py-3.5 px-4 rounded-xl border border-slate-200 dark:border-slate-800 font-bold text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-900 transition text-sm cursor-pointer"
-                          >
-                            Book Another Slot
-                          </button>
-                        </div>
-                      </div>
-                    )}
+                    ))}
                   </div>
-
-                </div>
-
+                )}
               </div>
-            </motion.div>
-          )}
-        </AnimatePresence>
-
-        {/* Auth Required Popup */}
-        <AnimatePresence>
-          {showAuthRequired && (
-            <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
-              <motion.div
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-                exit={{ opacity: 0 }}
-                onClick={() => setShowAuthRequired(false)}
-                className="absolute inset-0 bg-slate-950/70 backdrop-blur-xs pointer-events-auto"
-              />
-              <motion.div
-                initial={{ scale: 0.95, opacity: 0 }}
-                animate={{ scale: 1, opacity: 1 }}
-                exit={{ scale: 0.95, opacity: 0 }}
-                className="relative w-full max-w-sm bg-white dark:bg-slate-900 border border-slate-205 dark:border-slate-800 p-8 rounded-3xl shadow-2xl z-10 pointer-events-auto text-center"
-              >
-                <div className="w-14 h-14 bg-green-500/10 border border-green-500/20 text-green-500 dark:text-green-400 rounded-full flex items-center justify-center text-2xl mx-auto mb-6">
-                  <FaUser />
-                </div>
-                <h3 className="text-xl font-black text-slate-800 dark:text-white mb-2">
-                  Login Required
-                </h3>
-                <p className="text-slate-500 dark:text-slate-400 text-sm mb-6 leading-relaxed">
-                  You must be logged in to book a sports turf slot. Click below to sign in or create an account.
-                </p>
-                <div className="flex gap-3">
-                  <button
-                    onClick={() => setShowAuthRequired(false)}
-                    className="w-1/2 py-3 border border-slate-200 dark:border-slate-800 rounded-xl font-bold text-xs text-slate-500 dark:text-slate-400 hover:bg-slate-105 transition cursor-pointer"
-                  >
-                    Cancel
-                  </button>
-                  <Link
-                    to="/login"
-                    className="w-1/2 py-3 bg-green-500 hover:bg-green-600 text-white rounded-xl font-bold text-xs shadow-md shadow-green-500/10 block text-center"
-                  >
-                    Login Now
-                  </Link>
-                </div>
-              </motion.div>
             </div>
-          )}
-        </AnimatePresence>
 
+            {/* Right Column: Checkout Summary Box */}
+            <div>
+              <div className="bg-white dark:bg-slate-900 p-6 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-xl sticky top-28 space-y-6">
+                <h3 className="font-black text-xl text-slate-800 dark:text-white pb-3 border-b border-slate-100 dark:border-slate-800">
+                  Booking Summary
+                </h3>
+
+                {selectedTurf ? (
+                  <div className="space-y-4 text-sm">
+                    <div>
+                      <p className="text-xs text-slate-400 uppercase font-bold">Facility</p>
+                      <p className="font-bold text-slate-800 dark:text-white text-base">{selectedTurf.turfName}</p>
+                      <p className="text-xs text-slate-500">{selectedTurf.location.address}, {selectedTurf.location.city}</p>
+                    </div>
+
+                    <div>
+                      <p className="text-xs text-slate-400 uppercase font-bold">Selected Date</p>
+                      <p className="font-bold text-slate-800 dark:text-white">
+                        {new Date(selectedDate).toDateString()}
+                      </p>
+                    </div>
+
+                    <div>
+                      <p className="text-xs text-slate-400 uppercase font-bold">Selected Slot</p>
+                      {selectedSlot ? (
+                        <p className="font-black text-green-500 text-base">{selectedSlot}</p>
+                      ) : (
+                        <p className="text-slate-400 italic">Please select a slot</p>
+                      )}
+                    </div>
+
+                    <div className="border-t border-slate-100 dark:border-slate-800 pt-4 space-y-2">
+                      <div className="flex justify-between text-slate-500">
+                        <span>Slot Charge</span>
+                        <span>₹{selectedTurf.pricePerSlot}</span>
+                      </div>
+                      <div className="flex justify-between text-slate-500">
+                        <span>Taxes & Fees</span>
+                        <span className="text-green-500 font-bold">FREE</span>
+                      </div>
+                      <div className="flex justify-between font-black text-slate-800 dark:text-white text-lg pt-2 border-t border-slate-100 dark:border-slate-800">
+                        <span>Total Payable</span>
+                        <span className="text-green-500">₹{selectedTurf.pricePerSlot}</span>
+                      </div>
+                    </div>
+                  </div>
+                ) : (
+                  <p className="text-slate-400 text-sm">Select a turf to continue</p>
+                )}
+
+                <button
+                  disabled={!selectedSlot || isProcessing}
+                  onClick={handleProceedToPayment}
+                  className={`w-full py-4 rounded-2xl font-black text-base transition flex items-center justify-center gap-2 shadow-lg cursor-pointer ${
+                    !selectedSlot || isProcessing
+                      ? "bg-slate-200 dark:bg-slate-800 text-slate-400 cursor-not-allowed shadow-none"
+                      : "bg-gradient-to-r from-green-500 to-emerald-600 hover:from-green-600 hover:to-emerald-700 text-white shadow-green-500/25 hover:shadow-green-500/40"
+                  }`}
+                >
+                  {isProcessing ? (
+                    <>
+                      <FaSpinner className="animate-spin text-lg" />
+                      <span>Processing...</span>
+                    </>
+                  ) : (
+                    <>
+                      <FaCreditCard />
+                      <span>Pay ₹{selectedTurf?.pricePerSlot || 0} via Razorpay</span>
+                    </>
+                  )}
+                </button>
+
+                <p className="text-[11px] text-slate-400 text-center flex items-center justify-center gap-1">
+                  <FaLock className="text-green-500 text-[10px]" /> 256-bit encrypted Razorpay sandbox payment
+                </p>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );
