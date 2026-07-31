@@ -12,6 +12,13 @@
 
 ---
 
+## 🌐 Live Deployments
+
+- 🚀 **Frontend App (Vercel)**: [https://turf-management-system-six.vercel.app/](https://turf-management-system-six.vercel.app/)
+- ⚙️ **Backend API (Render)**: [https://turf-management-system-ceax.onrender.com](https://turf-management-system-ceax.onrender.com)
+
+---
+
 ## 🌟 Key Features
 
 ### 👤 Customer Features
