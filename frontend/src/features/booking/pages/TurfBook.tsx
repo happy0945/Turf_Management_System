@@ -56,6 +56,9 @@ const TurfBook = () => {
   const daysList = getNext7Days();
   const [selectedDate, setSelectedDate] = useState<string>(daysList[0].rawDate);
 
+  // Custom slot duration state (30, 60, 90, 120 mins)
+  const [selectedDuration, setSelectedDuration] = useState<number>(60);
+
   const [slots, setSlots] = useState<TimeSlot[]>([]);
   const [loadingSlots, setLoadingSlots] = useState(false);
   const [selectedSlot, setSelectedSlot] = useState<string | null>(null);
@@ -76,10 +79,16 @@ const TurfBook = () => {
 
         if (preselectedTurfId) {
           const match = data.find((t) => t._id === preselectedTurfId);
-          if (match) setSelectedTurf(match);
-          else if (data.length > 0) setSelectedTurf(data[0]);
+          if (match) {
+            setSelectedTurf(match);
+            setSelectedDuration(match.slotDuration || 60);
+          } else if (data.length > 0) {
+            setSelectedTurf(data[0]);
+            setSelectedDuration(data[0].slotDuration || 60);
+          }
         } else if (data.length > 0) {
           setSelectedTurf(data[0]);
+          setSelectedDuration(data[0].slotDuration || 60);
         }
       } catch {
         setErrorMsg("Failed to load turfs. Please refresh.");
@@ -90,6 +99,13 @@ const TurfBook = () => {
     fetchTurfs();
   }, [preselectedTurfId]);
 
+  // When turf selection changes, sync slot duration
+  const handleSelectTurf = (turf: Turf) => {
+    setSelectedTurf(turf);
+    setSelectedDuration(turf.slotDuration || 60);
+    setSelectedSlot(null);
+  };
+
   // 2. Fetch slots whenever selectedTurf or selectedDate changes
   useEffect(() => {
     if (!selectedTurf) return;
@@ -98,14 +114,11 @@ const TurfBook = () => {
         setLoadingSlots(true);
         setSelectedSlot(null);
         setErrorMsg(null);
-        const availableSlots = await turfService.getAvailableSlots(
-          selectedTurf._id,
-          selectedDate
-        );
-        setSlots(availableSlots);
+        const data = await turfService.getAvailableSlots(selectedTurf._id, selectedDate);
+        setSlots(data);
       } catch (err: any) {
+        setErrorMsg(err?.response?.data?.message || "Failed to load slots for selected date.");
         setSlots([]);
-        setErrorMsg(err?.response?.data?.message || "Failed to fetch slot availability.");
       } finally {
         setLoadingSlots(false);
       }
@@ -113,8 +126,8 @@ const TurfBook = () => {
     fetchSlots();
   }, [selectedTurf, selectedDate]);
 
-  // Handle Payment via Razorpay
-  const handleProceedToPayment = async () => {
+  // Handle booking creation & payment modal launch
+  const handleCreateBooking = async () => {
     if (!isLoggedIn) {
       navigate("/login");
       return;
@@ -130,6 +143,7 @@ const TurfBook = () => {
         turfId: selectedTurf._id,
         bookingDate: selectedDate,
         startTime: selectedSlot,
+        slotDuration: selectedDuration,
       });
 
       // Step 2: Load Razorpay script
@@ -144,7 +158,7 @@ const TurfBook = () => {
         amount: razorpayOrder.amount,
         currency: razorpayOrder.currency,
         name: "TurfHub",
-        description: `Booking for ${selectedTurf.turfName}`,
+        description: `Booking for ${selectedTurf.turfName} (${selectedDuration} mins)`,
         order_id: razorpayOrder.orderId,
         prefill: {
           name: user?.fullName || "",
@@ -153,6 +167,24 @@ const TurfBook = () => {
         },
         theme: {
           color: "#22c55e",
+        },
+        config: {
+          display: {
+            blocks: {
+              upi: {
+                name: "Pay via UPI / QR Code",
+                instruments: [
+                  { method: "upi" },
+                  { method: "card" },
+                  { method: "netbanking" },
+                ],
+              },
+            },
+            sequence: ["block.upi"],
+            preferences: {
+              show_default_blocks: true,
+            },
+          },
         },
         handler: async (response: any) => {
           try {
@@ -201,6 +233,19 @@ const TurfBook = () => {
     );
   }
 
+  // Calculate dynamic price & end time based on selectedDuration
+  const baseDuration = selectedTurf?.slotDuration || 60;
+  const priceRatio = selectedDuration / baseDuration;
+  const calculatedPrice = selectedTurf ? Math.round(selectedTurf.pricePerSlot * priceRatio) : 0;
+
+  const calculateEndTime = (start: string, duration: number) => {
+    const [h, m] = start.split(":").map(Number);
+    const totalMins = h * 60 + m + duration;
+    const endH = Math.floor(totalMins / 60) % 24;
+    const endM = totalMins % 60;
+    return `${String(endH).padStart(2, "0")}:${String(endM).padStart(2, "0")}`;
+  };
+
   return (
     <div className="bg-slate-50 dark:bg-slate-950 min-h-screen pt-28 pb-20 transition-colors duration-500">
       <div className="max-w-7xl mx-auto px-4 md:px-8">
@@ -218,7 +263,7 @@ const TurfBook = () => {
             </span>
           </h1>
           <p className="text-slate-500 dark:text-slate-400">
-            Select a turf, choose your preferred time, and pay securely via Razorpay
+            Select venue, date, custom duration, and slot time for instant booking
           </p>
         </motion.div>
 
@@ -245,7 +290,7 @@ const TurfBook = () => {
                 Booking Confirmed! 🎉
               </h2>
               <p className="text-sm text-slate-500 dark:text-slate-400">
-                A confirmation email & SMS has been sent to your registered contact.
+                A confirmation email &amp; SMS has been sent to your registered contact.
               </p>
             </div>
 
@@ -263,7 +308,7 @@ const TurfBook = () => {
               <div className="flex justify-between">
                 <span className="text-slate-400">Slot Time:</span>
                 <span className="font-bold text-green-500">
-                  {confirmedBooking.startTime} – {confirmedBooking.endTime}
+                  {confirmedBooking.startTime} – {confirmedBooking.endTime} ({confirmedBooking.slotDuration || selectedDuration} mins)
                 </span>
               </div>
               <div className="flex justify-between">
@@ -291,7 +336,7 @@ const TurfBook = () => {
                   setConfirmedBooking(null);
                   setSelectedSlot(null);
                 }}
-                className="flex-1 py-3.5 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 font-bold rounded-xl transition text-sm"
+                className="flex-1 py-3.5 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 font-bold rounded-xl transition text-sm cursor-pointer"
               >
                 Book Another Slot
               </button>
@@ -303,7 +348,7 @@ const TurfBook = () => {
         {step !== "SUCCESS" && (
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
             
-            {/* Left Column: Turf Selector & Slot Picker */}
+            {/* Left Column: Turf Selector, Duration Picker & Slot Grid */}
             <div className="lg:col-span-2 space-y-6">
               
               {/* Turf Selector Dropdown */}
@@ -315,172 +360,218 @@ const TurfBook = () => {
                   {turfs.map((turf) => (
                     <button
                       key={turf._id}
-                      onClick={() => setSelectedTurf(turf)}
+                      onClick={() => handleSelectTurf(turf)}
                       className={`p-4 rounded-2xl border text-left transition cursor-pointer flex items-center gap-3 ${
                         selectedTurf?._id === turf._id
                           ? "border-green-500 bg-green-500/5 ring-2 ring-green-500/20"
                           : "border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 hover:border-green-500/40"
                       }`}
                     >
-                      <div className="w-12 h-12 rounded-xl overflow-hidden flex-shrink-0 bg-slate-800">
-                        <img
-                          src={turf.images?.[0]?.url || "https://images.unsplash.com/photo-1575361204480-aadea25e6e68?w=300&auto=format&fit=crop&q=80"}
-                          alt={turf.turfName}
-                          className="w-full h-full object-cover"
-                        />
-                      </div>
+                      <img
+                        src={turf.images?.[0]?.url || "https://images.unsplash.com/photo-1575361204480-aadea25e6e68?w=100"}
+                        alt={turf.turfName}
+                        className="w-12 h-12 rounded-xl object-cover flex-shrink-0"
+                      />
                       <div className="overflow-hidden">
                         <h4 className="font-bold text-slate-800 dark:text-white text-sm truncate">{turf.turfName}</h4>
                         <p className="text-xs text-slate-400 truncate">{turf.location.city}</p>
-                        <p className="text-xs font-black text-green-500 mt-0.5">₹{turf.pricePerSlot}/slot</p>
+                        <p className="text-xs font-extrabold text-green-500 mt-0.5">₹{turf.pricePerSlot} / {turf.slotDuration}m</p>
                       </div>
                     </button>
                   ))}
                 </div>
               </div>
 
-              {/* Date Picker (Next 7 days) */}
+              {/* ══ SLOT DURATION SELECTOR (30m, 60m, 90m, 120m) ════════════════ */}
+              <div className="bg-white dark:bg-slate-900 p-6 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm space-y-3">
+                <div className="flex items-center justify-between">
+                  <label className="block text-xs font-bold uppercase tracking-wider text-slate-400">
+                    Select Slot Duration
+                  </label>
+                  <span className="text-xs font-bold text-green-500">
+                    Selected: {selectedDuration} Minutes
+                  </span>
+                </div>
+
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                  {[
+                    { dur: 30, label: "30 Mins" },
+                    { dur: 60, label: "60 Mins (1 Hr)" },
+                    { dur: 90, label: "90 Mins (1.5 Hrs)" },
+                    { dur: 120, label: "120 Mins (2 Hrs)" },
+                  ].map((opt) => (
+                    <button
+                      key={opt.dur}
+                      type="button"
+                      onClick={() => setSelectedDuration(opt.dur)}
+                      className={`py-3 px-3 rounded-2xl text-xs font-black transition cursor-pointer text-center border ${
+                        selectedDuration === opt.dur
+                          ? "border-green-500 bg-green-500 text-white shadow-md shadow-green-500/20"
+                          : "border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 text-slate-700 dark:text-slate-300 hover:border-green-500/40"
+                      }`}
+                    >
+                      {opt.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Date Selector (7 Days) */}
               <div className="bg-white dark:bg-slate-900 p-6 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm space-y-3">
                 <label className="block text-xs font-bold uppercase tracking-wider text-slate-400">
-                  Select Date
+                  Select Booking Date
                 </label>
-                <div className="grid grid-cols-4 sm:grid-cols-7 gap-2">
+                <div className="flex gap-3 overflow-x-auto pb-2">
                   {daysList.map((day) => (
                     <button
                       key={day.rawDate}
                       onClick={() => setSelectedDate(day.rawDate)}
-                      className={`p-3 rounded-2xl border text-center transition cursor-pointer flex flex-col items-center ${
+                      className={`flex flex-col items-center min-w-[70px] p-3 rounded-2xl border transition cursor-pointer flex-shrink-0 ${
                         selectedDate === day.rawDate
-                          ? "border-green-500 bg-green-500 text-white shadow-md shadow-green-500/20 font-bold"
-                          : "border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 text-slate-700 dark:text-slate-300 hover:border-green-500/40"
+                          ? "bg-gradient-to-b from-green-500 to-emerald-600 text-white border-green-500 shadow-md shadow-green-500/20"
+                          : "bg-slate-50 dark:bg-slate-950 border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300 hover:border-green-500/40"
                       }`}
                     >
-                      <span className="text-[10px] uppercase font-bold tracking-wider opacity-80">{day.dayName}</span>
-                      <span className="text-lg font-black">{day.dayNum}</span>
-                      <span className="text-[10px] opacity-80">{day.monthName}</span>
+                      <span className="text-[10px] font-bold opacity-80">{day.dayName}</span>
+                      <span className="text-xl font-black">{day.dayNum}</span>
+                      <span className="text-[10px] font-bold opacity-80">{day.monthName}</span>
                     </button>
                   ))}
                 </div>
               </div>
 
-              {/* Slot Picker */}
+              {/* Time Slots Grid */}
               <div className="bg-white dark:bg-slate-900 p-6 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm space-y-4">
                 <div className="flex items-center justify-between">
                   <label className="block text-xs font-bold uppercase tracking-wider text-slate-400">
-                    Available Time Slots ({selectedTurf?.slotDuration || 60} mins)
+                    Available Time Slots
                   </label>
-                  <span className="text-xs text-slate-400 font-semibold">
-                    {slots.filter((s) => s.isAvailable).length} available
-                  </span>
+                  {selectedSlot && (
+                    <span className="text-xs font-bold text-green-500">
+                      Selected: {selectedSlot} – {calculateEndTime(selectedSlot, selectedDuration)}
+                    </span>
+                  )}
                 </div>
 
                 {loadingSlots ? (
-                  <div className="flex items-center justify-center py-12 gap-3 text-slate-400 font-semibold text-sm">
-                    <FaSpinner className="animate-spin text-green-500" /> Fetching slots...
+                  <div className="flex flex-col items-center justify-center py-12 gap-2 text-slate-400">
+                    <FaSpinner className="animate-spin text-2xl text-green-500" />
+                    <span className="text-xs font-semibold">Checking slot availability...</span>
                   </div>
                 ) : slots.length === 0 ? (
-                  <p className="text-slate-400 text-sm text-center py-8">No slots found for this date.</p>
+                  <div className="text-center py-12 text-slate-400 text-sm font-medium">
+                    No available slots for this date. Please try selecting another date.
+                  </div>
                 ) : (
-                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-                    {slots.map((slot) => (
-                      <button
-                        key={slot.startTime}
-                        disabled={!slot.isAvailable}
-                        onClick={() => setSelectedSlot(slot.startTime)}
-                        className={`py-3.5 px-3 rounded-xl border text-xs font-bold transition flex items-center justify-center gap-1.5 cursor-pointer ${
-                          !slot.isAvailable
-                            ? "bg-slate-100 dark:bg-slate-950/40 border-slate-200/50 dark:border-slate-850 text-slate-300 dark:text-slate-700 cursor-not-allowed line-through"
-                            : selectedSlot === slot.startTime
-                            ? "bg-green-500 text-white border-green-500 shadow-md shadow-green-500/20"
-                            : "bg-slate-50 dark:bg-slate-950 border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300 hover:border-green-500/40"
-                        }`}
-                      >
-                        <FaClock className="text-[10px]" />
-                        <span>{slot.startTime}</span>
-                      </button>
-                    ))}
+                  <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-6 gap-3">
+                    {slots.map((slot) => {
+                      const isSelected = selectedSlot === slot.startTime;
+                      return (
+                        <button
+                          key={slot.startTime}
+                          disabled={!slot.isAvailable}
+                          onClick={() => setSelectedSlot(slot.startTime)}
+                          className={`py-3 px-2 rounded-xl text-xs font-bold transition flex flex-col items-center gap-0.5 cursor-pointer ${
+                            !slot.isAvailable
+                              ? "bg-slate-100 dark:bg-slate-800/40 text-slate-400 line-through cursor-not-allowed border border-transparent"
+                              : isSelected
+                              ? "bg-green-500 text-white shadow-md shadow-green-500/20 border border-green-500 scale-105"
+                              : "bg-slate-50 dark:bg-slate-950 text-slate-800 dark:text-slate-200 border border-slate-200 dark:border-slate-800 hover:border-green-500/40"
+                          }`}
+                        >
+                          <span>{slot.startTime}</span>
+                          <span className="text-[9px] font-normal opacity-80">
+                            {slot.isAvailable ? "Available" : "Booked"}
+                          </span>
+                        </button>
+                      );
+                    })}
                   </div>
                 )}
               </div>
+
             </div>
 
-            {/* Right Column: Checkout Summary Box */}
-            <div>
+            {/* Right Column: Dynamic Order Summary Sidebar */}
+            <div className="space-y-6">
               <div className="bg-white dark:bg-slate-900 p-6 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-xl sticky top-28 space-y-6">
-                <h3 className="font-black text-xl text-slate-800 dark:text-white pb-3 border-b border-slate-100 dark:border-slate-800">
-                  Booking Summary
+                <h3 className="text-xl font-black text-slate-800 dark:text-white border-b border-slate-100 dark:border-slate-800 pb-3">
+                  Reservation Summary
                 </h3>
 
                 {selectedTurf ? (
-                  <div className="space-y-4 text-sm">
-                    <div>
-                      <p className="text-xs text-slate-400 uppercase font-bold">Facility</p>
-                      <p className="font-bold text-slate-800 dark:text-white text-base">{selectedTurf.turfName}</p>
-                      <p className="text-xs text-slate-500">{selectedTurf.location.address}, {selectedTurf.location.city}</p>
+                  <div className="space-y-4">
+                    <div className="flex gap-3 items-center">
+                      <img
+                        src={selectedTurf.images?.[0]?.url || "https://images.unsplash.com/photo-1575361204480-aadea25e6e68?w=100"}
+                        alt={selectedTurf.turfName}
+                        className="w-14 h-14 rounded-2xl object-cover"
+                      />
+                      <div>
+                        <h4 className="font-bold text-slate-800 dark:text-white text-base">{selectedTurf.turfName}</h4>
+                        <p className="text-xs text-slate-400">{selectedTurf.location.address}, {selectedTurf.location.city}</p>
+                      </div>
                     </div>
 
-                    <div>
-                      <p className="text-xs text-slate-400 uppercase font-bold">Selected Date</p>
-                      <p className="font-bold text-slate-800 dark:text-white">
-                        {new Date(selectedDate).toDateString()}
-                      </p>
+                    <div className="space-y-2.5 bg-slate-50 dark:bg-slate-950 p-4 rounded-2xl border border-slate-100 dark:border-slate-800 text-xs">
+                      <div className="flex justify-between text-slate-600 dark:text-slate-300">
+                        <span className="text-slate-400">Date:</span>
+                        <span className="font-bold">{new Date(selectedDate).toDateString()}</span>
+                      </div>
+                      <div className="flex justify-between text-slate-600 dark:text-slate-300">
+                        <span className="text-slate-400">Time Slot:</span>
+                        <span className="font-bold text-green-500">
+                          {selectedSlot
+                            ? `${selectedSlot} – ${calculateEndTime(selectedSlot, selectedDuration)}`
+                            : "Not selected"}
+                        </span>
+                      </div>
+                      <div className="flex justify-between text-slate-600 dark:text-slate-300">
+                        <span className="text-slate-400">Duration:</span>
+                        <span className="font-bold text-slate-800 dark:text-white">{selectedDuration} Minutes</span>
+                      </div>
+                      <div className="flex justify-between text-slate-600 dark:text-slate-300">
+                        <span className="text-slate-400">Base Price:</span>
+                        <span>₹{selectedTurf.pricePerSlot} / {selectedTurf.slotDuration}m</span>
+                      </div>
                     </div>
 
-                    <div>
-                      <p className="text-xs text-slate-400 uppercase font-bold">Selected Slot</p>
-                      {selectedSlot ? (
-                        <p className="font-black text-green-500 text-base">{selectedSlot}</p>
+                    <div className="pt-2 border-t border-slate-100 dark:border-slate-800 flex justify-between items-baseline">
+                      <span className="text-sm font-bold text-slate-800 dark:text-white">Total Amount:</span>
+                      <span className="text-3xl font-black text-green-500">
+                        ₹{selectedSlot ? calculatedPrice : selectedTurf.pricePerSlot}
+                      </span>
+                    </div>
+
+                    <button
+                      disabled={!selectedSlot || isProcessing}
+                      onClick={handleCreateBooking}
+                      className="w-full py-4 bg-gradient-to-r from-green-500 to-emerald-600 hover:from-green-600 hover:to-emerald-700 disabled:opacity-50 text-white font-black text-base rounded-2xl shadow-lg shadow-green-500/25 transition flex items-center justify-center gap-2 cursor-pointer"
+                    >
+                      {isProcessing ? (
+                        <>
+                          <FaSpinner className="animate-spin" />
+                          <span>Processing...</span>
+                        </>
                       ) : (
-                        <p className="text-slate-400 italic">Please select a slot</p>
+                        <>
+                          <FaCreditCard />
+                          <span>Proceed to Pay</span>
+                        </>
                       )}
-                    </div>
+                    </button>
 
-                    <div className="border-t border-slate-100 dark:border-slate-800 pt-4 space-y-2">
-                      <div className="flex justify-between text-slate-500">
-                        <span>Slot Charge</span>
-                        <span>₹{selectedTurf.pricePerSlot}</span>
-                      </div>
-                      <div className="flex justify-between text-slate-500">
-                        <span>Taxes & Fees</span>
-                        <span className="text-green-500 font-bold">FREE</span>
-                      </div>
-                      <div className="flex justify-between font-black text-slate-800 dark:text-white text-lg pt-2 border-t border-slate-100 dark:border-slate-800">
-                        <span>Total Payable</span>
-                        <span className="text-green-500">₹{selectedTurf.pricePerSlot}</span>
-                      </div>
+                    <div className="flex items-center justify-center gap-1.5 text-[10px] text-slate-400 font-semibold pt-1">
+                      <FaLock className="text-green-500" />
+                      <span>Secured by Razorpay • Instant Confirmation</span>
                     </div>
                   </div>
                 ) : (
-                  <p className="text-slate-400 text-sm">Select a turf to continue</p>
+                  <p className="text-xs text-slate-400 text-center py-6">Please select a turf facility to see summary.</p>
                 )}
-
-                <button
-                  disabled={!selectedSlot || isProcessing}
-                  onClick={handleProceedToPayment}
-                  className={`w-full py-4 rounded-2xl font-black text-base transition flex items-center justify-center gap-2 shadow-lg cursor-pointer ${
-                    !selectedSlot || isProcessing
-                      ? "bg-slate-200 dark:bg-slate-800 text-slate-400 cursor-not-allowed shadow-none"
-                      : "bg-gradient-to-r from-green-500 to-emerald-600 hover:from-green-600 hover:to-emerald-700 text-white shadow-green-500/25 hover:shadow-green-500/40"
-                  }`}
-                >
-                  {isProcessing ? (
-                    <>
-                      <FaSpinner className="animate-spin text-lg" />
-                      <span>Processing...</span>
-                    </>
-                  ) : (
-                    <>
-                      <FaCreditCard />
-                      <span>Pay ₹{selectedTurf?.pricePerSlot || 0} via Razorpay</span>
-                    </>
-                  )}
-                </button>
-
-                <p className="text-[11px] text-slate-400 text-center flex items-center justify-center gap-1">
-                  <FaLock className="text-green-500 text-[10px]" /> 256-bit encrypted Razorpay sandbox payment
-                </p>
               </div>
             </div>
+
           </div>
         )}
       </div>

@@ -286,4 +286,59 @@ const registerOwner = asyncHandler(async (req: Request, res: Response) => {
     );
 });
 
-export { registerUser, loginUser, logoutUser, adminRegister, registerOwner, deleteProfile, getProfile, updateProfile };
+// =============== getAllUsers (Admin only) ================
+const getAllUsers = asyncHandler(async (req: Request, res: Response) => {
+    const users = await User.find()
+        .select("-password")
+        .sort({ createdAt: -1 })
+        .lean();
+
+    res.status(200).json(new ApiResponse(200, users, "Users fetched successfully"));
+});
+
+// =============== updateUserRole (Admin only) ================
+const updateUserRole = asyncHandler(async (req: Request, res: Response) => {
+    const { userId } = req.params;
+    const { role } = req.body;
+
+    if (!["user", "owner", "admin"].includes(role)) {
+        throw new ApiError(400, "Invalid role specified");
+    }
+
+    const targetUser = await User.findById(userId);
+    if (!targetUser) {
+        throw new ApiError(404, "User not found");
+    }
+
+    targetUser.role = role;
+    await targetUser.save();
+
+    res.status(200).json(
+        new ApiResponse(200, { _id: targetUser._id, role: targetUser.role }, `User role updated to ${role}`)
+    );
+});
+
+// =============== deleteUserByAdmin (Admin only) ================
+const deleteUserByAdmin = asyncHandler(async (req: Request, res: Response) => {
+    const { userId } = req.params;
+    const targetUser = await User.findByIdAndDelete(userId);
+    if (!targetUser) {
+        throw new ApiError(404, "User not found");
+    }
+    res.status(200).json(new ApiResponse(200, null, "User deleted successfully"));
+});
+
+export {
+    registerUser,
+    loginUser,
+    logoutUser,
+    adminRegister,
+    registerOwner,
+    deleteProfile,
+    getProfile,
+    updateProfile,
+    getAllUsers,
+    updateUserRole,
+    deleteUserByAdmin,
+};
+

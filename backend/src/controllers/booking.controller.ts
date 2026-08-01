@@ -77,16 +77,16 @@ const createBooking = asyncHandler(async (req: Request, res: Response) => {
   }
 
   const validSlots = generateSlots(turf.openingTime, turf.closingTime, turf.slotDuration);
-  console.log("Opening:", turf.openingTime);
-  console.log("Closing:", turf.closingTime);
-  console.log("Duration:", turf.slotDuration);
-  console.log("Generated Slots:", validSlots);
-  console.log("Received Start Time:", body.startTime);
   if (!validSlots.includes(body.startTime)) {
     throw new ApiError(400, "Invalid slot for this turf");
   }
 
-  const endTime = minutesToTime(timeToMinutes(body.startTime) + turf.slotDuration);
+  const duration = body.slotDuration || turf.slotDuration || 60;
+  const baseDuration = turf.slotDuration || 60;
+  const priceRatio = duration / baseDuration;
+  const totalAmount = Math.round(turf.pricePerSlot * priceRatio);
+
+  const endTime = minutesToTime(timeToMinutes(body.startTime) + duration);
 
   let booking;
   try {
@@ -97,18 +97,17 @@ const createBooking = asyncHandler(async (req: Request, res: Response) => {
       bookingDate,
       startTime: body.startTime,
       endTime,
-      slotDuration: turf.slotDuration,
-      totalAmount: turf.pricePerSlot,
+      slotDuration: duration,
+      totalAmount,
       status: "pending",
       payment: {
-        amount: turf.pricePerSlot,
+        amount: totalAmount,
         currency: "INR",
         status: "created",
       },
       expiresAt: new Date(Date.now() + PENDING_BOOKING_TTL_MINUTES * 60 * 1000),
     });
   } catch (error: any) {
-    // Duplicate key -> the unique partial index caught a race on the same slot
     if (error?.code === 11000) {
       throw new ApiError(409, "This slot is already booked or awaiting payment");
     }
@@ -116,7 +115,7 @@ const createBooking = asyncHandler(async (req: Request, res: Response) => {
   }
 
   const order = await razorpay.orders.create({
-    amount: Math.round(turf.pricePerSlot * 100), // paise
+    amount: Math.round(totalAmount * 100), // paise
     currency: "INR",
     receipt: String(booking._id),
     notes: {

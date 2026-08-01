@@ -4,6 +4,7 @@ export interface CreateBookingData {
   turfId: string;
   bookingDate: string;
   startTime: string;
+  slotDuration?: number;
 }
 
 export interface VerifyPaymentData {

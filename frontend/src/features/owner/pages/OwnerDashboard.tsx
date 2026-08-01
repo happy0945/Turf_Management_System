@@ -660,7 +660,19 @@ const OwnerDashboard = () => {
                   <InputField label="Closing Time" type="time" required value={addForm.closingTime} onChange={(v) => setAddForm({ ...addForm, closingTime: v })} />
                 </div>
                 <div className="grid grid-cols-2 gap-4">
-                  <InputField label="Slot Duration (min)" type="number" required value={String(addForm.slotDuration)} onChange={(v) => setAddForm({ ...addForm, slotDuration: Number(v) })} />
+                  <div>
+                    <label className="block text-xs font-bold uppercase tracking-wider text-slate-400 mb-1.5">Slot Duration</label>
+                    <select
+                      value={addForm.slotDuration}
+                      onChange={(e) => setAddForm({ ...addForm, slotDuration: Number(e.target.value) })}
+                      className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-slate-800 dark:text-slate-200 py-2.5 px-4 rounded-xl text-sm focus:outline-none cursor-pointer"
+                    >
+                      <option value={30}>30 Minutes</option>
+                      <option value={60}>60 Minutes (1 Hour)</option>
+                      <option value={90}>90 Minutes (1.5 Hours)</option>
+                      <option value={120}>120 Minutes (2 Hours)</option>
+                    </select>
+                  </div>
                   <InputField label="Price Per Slot (₹)" type="number" required value={String(addForm.pricePerSlot)} onChange={(v) => setAddForm({ ...addForm, pricePerSlot: Number(v) })} />
                 </div>
                 <InputField label="Sports Type (comma-separated)" required value={addForm.sportsType} onChange={(v) => setAddForm({ ...addForm, sportsType: v })} placeholder="e.g. Football, Cricket" />
@@ -747,7 +759,19 @@ const OwnerDashboard = () => {
                   <InputField label="Closing Time" type="time" required value={editForm.closingTime} onChange={(v) => setEditForm({ ...editForm, closingTime: v })} />
                 </div>
                 <div className="grid grid-cols-2 gap-4">
-                  <InputField label="Slot Duration (min)" type="number" required value={String(editForm.slotDuration)} onChange={(v) => setEditForm({ ...editForm, slotDuration: Number(v) })} />
+                  <div>
+                    <label className="block text-xs font-bold uppercase tracking-wider text-slate-400 mb-1.5">Slot Duration</label>
+                    <select
+                      value={editForm.slotDuration}
+                      onChange={(e) => setEditForm({ ...editForm, slotDuration: Number(e.target.value) })}
+                      className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-slate-800 dark:text-slate-200 py-2.5 px-4 rounded-xl text-sm focus:outline-none cursor-pointer"
+                    >
+                      <option value={30}>30 Minutes</option>
+                      <option value={60}>60 Minutes (1 Hour)</option>
+                      <option value={90}>90 Minutes (1.5 Hours)</option>
+                      <option value={120}>120 Minutes (2 Hours)</option>
+                    </select>
+                  </div>
                   <InputField label="Price Per Slot (₹)" type="number" required value={String(editForm.pricePerSlot)} onChange={(v) => setEditForm({ ...editForm, pricePerSlot: Number(v) })} />
                 </div>
                 <InputField label="Sports Type (comma-separated)" required value={editForm.sportsType} onChange={(v) => setEditForm({ ...editForm, sportsType: v })} />

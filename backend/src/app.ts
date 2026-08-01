@@ -4,6 +4,7 @@ import authRouter from "./routes/user.auth.js";
 import turfRouter from "./routes/turf.routes.js";
 import bookingRouter from "./routes/booking.routes.js";
 import webhookRouter from "./routes/webhook.routes.js";
+import reviewRouter from "./routes/review.routes.js";
 import { errorHandler } from "./middlewares/error.middleware.js";
 import cors from "cors";
 
@@ -49,6 +50,7 @@ app.use(express.static("public"));
 app.use('/auth', authRouter);
 app.use('/turf', turfRouter);
 app.use('/booking', bookingRouter);
+app.use('/review', reviewRouter);
 
 // Global Error Handler
 app.use(errorHandler);

@@ -1,5 +1,17 @@
 import express from "express";
-import { registerUser, loginUser, logoutUser, adminRegister, registerOwner, deleteProfile, getProfile, updateProfile } from "../controllers/user.controller.js";
+import {
+  registerUser,
+  loginUser,
+  logoutUser,
+  adminRegister,
+  registerOwner,
+  deleteProfile,
+  getProfile,
+  updateProfile,
+  getAllUsers,
+  updateUserRole,
+  deleteUserByAdmin,
+} from "../controllers/user.controller.js";
 import userMiddleware from "../middlewares/user.middleware.js";
 import adminMiddleware from "../middlewares/admin.middleware.js";
 
@@ -17,6 +29,9 @@ authRouter.patch("/profile", userMiddleware, updateProfile);
 // ─── Admin-only routes ────────────────────────────────────────────────────────
 authRouter.post("/admin/register", userMiddleware, adminMiddleware, adminRegister);
 authRouter.post("/owner/register", userMiddleware, adminMiddleware, registerOwner);
+authRouter.get("/admin/users", userMiddleware, adminMiddleware, getAllUsers);
+authRouter.patch("/admin/user/:userId/role", userMiddleware, adminMiddleware, updateUserRole);
+authRouter.delete("/admin/user/:userId", userMiddleware, adminMiddleware, deleteUserByAdmin);
 authRouter.delete('/delete', userMiddleware, adminMiddleware, deleteProfile);
 
 export default authRouter;

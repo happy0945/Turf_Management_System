@@ -9,6 +9,10 @@ export const createBookingSchema = z.object({
     startTime: z
       .string()
       .regex(/^([01]\d|2[0-3]):([0-5]\d)$/, "startTime must be in HH:mm format"),
+    slotDuration: z.coerce
+      .number()
+      .refine((val) => [30, 60, 90, 120].includes(val), "slotDuration must be 30, 60, 90, or 120")
+      .optional(),
   }),
   params: z.object({}).passthrough(),
   query: z.object({}).passthrough(),

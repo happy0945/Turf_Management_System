@@ -16,12 +16,24 @@ import {
   FaUserPlus,
   FaSpinner,
   FaFutbol,
+  FaBookOpen,
+  FaUserShield,
 } from "react-icons/fa";
 import { motion, AnimatePresence } from "framer-motion";
 import { useAuth } from "../../../context/AuthContext";
 import { turfService, type Turf } from "../../../services/turfService";
 import { ownerTurfService } from "../../../services/ownerTurfService";
 import axiosInstance from "../../../lib/axios";
+
+interface UserAccount {
+  _id: string;
+  fullName: string;
+  emailId: string;
+  contactNumber: string;
+  role: "user" | "owner" | "admin";
+  avatar?: string;
+  createdAt: string;
+}
 
 // ── Toast Alert ──────────────────────────────────────────────────────────────
 const Toast = ({
@@ -78,8 +90,11 @@ const AdminDashboard = () => {
   const navigate = useNavigate();
   const { user, isLoggedIn, isLoading: authLoading } = useAuth();
 
-  const [activeTab, setActiveTab] = useState<"Overview" | "Turfs" | "CreateOwner">("Overview");
+  const [activeTab, setActiveTab] = useState<"Overview" | "Turfs" | "Users" | "CreateOwner">("Overview");
   const [turfs, setTurfs] = useState<Turf[]>([]);
+  const [users, setUsers] = useState<UserAccount[]>([]);
+  const [turfBookingCounts, setTurfBookingCounts] = useState<Record<string, number>>({});
+
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
 
@@ -95,7 +110,7 @@ const AdminDashboard = () => {
   const [selectedTurf, setSelectedTurf] = useState<Turf | null>(null);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
 
-  // Add Turf Form
+  // Add Turf Form (Supporting slot durations 30, 60, 90, 120 mins)
   const [addForm, setAddForm] = useState({
     turfName: "",
     description: "",
@@ -150,17 +165,37 @@ const AdminDashboard = () => {
       navigate("/");
       return;
     }
-    fetchTurfs();
+    loadAdminData();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isLoggedIn, user, authLoading]);
 
-  const fetchTurfs = async () => {
+  const loadAdminData = async () => {
+    setLoading(true);
     try {
-      setLoading(true);
-      const data = await turfService.getAllTurfs();
-      setTurfs(data);
+      const [turfData, userData] = await Promise.all([
+        turfService.getAllTurfs(),
+        axiosInstance.get("/auth/admin/users").then((res) => res.data.data).catch(() => []),
+      ]);
+
+      setTurfs(turfData);
+      setUsers(userData);
+
+      // Fetch booking counts per turf
+      const counts: Record<string, number> = {};
+      await Promise.all(
+        turfData.map(async (t) => {
+          try {
+            const bRes = await axiosInstance.get(`/booking/turf/${t._id}`);
+            counts[t._id] = bRes.data.data?.length || 0;
+          } catch {
+            counts[t._id] = 0;
+          }
+        })
+      );
+      setTurfBookingCounts(counts);
+
     } catch {
-      showToast("Failed to load platform turfs.", "error");
+      showToast("Failed to load admin dashboard data.", "error");
     } finally {
       setLoading(false);
     }
@@ -216,20 +251,6 @@ const AdminDashboard = () => {
       setShowAddTurfModal(false);
       setAddImages([]);
       setAddImagePreviews([]);
-      setAddForm({
-        turfName: "",
-        description: "",
-        address: "",
-        city: "",
-        latitude: "",
-        longitude: "",
-        openingTime: "06:00",
-        closingTime: "22:00",
-        slotDuration: 60,
-        pricePerSlot: 500,
-        sportsType: "Football, Cricket",
-        amenities: "Floodlights, Drinking Water, Parking",
-      });
       showToast("Turf created successfully! 🎉");
     } catch (err: any) {
       showToast(err?.response?.data?.message || "Failed to create turf.", "error");
@@ -313,6 +334,28 @@ const AdminDashboard = () => {
     }
   };
 
+  // User Role Management
+  const handleUserRoleChange = async (userId: string, newRole: "user" | "owner" | "admin") => {
+    try {
+      await axiosInstance.patch(`/auth/admin/user/${userId}/role`, { role: newRole });
+      setUsers(users.map((u) => (u._id === userId ? { ...u, role: newRole } : u)));
+      showToast(`User role updated to ${newRole.toUpperCase()}`);
+    } catch (err: any) {
+      showToast(err?.response?.data?.message || "Failed to update user role.", "error");
+    }
+  };
+
+  const handleDeleteUser = async (userId: string) => {
+    if (!confirm("Are you sure you want to delete this user account?")) return;
+    try {
+      await axiosInstance.delete(`/auth/admin/user/${userId}`);
+      setUsers(users.filter((u) => u._id !== userId));
+      showToast("User account deleted successfully.");
+    } catch (err: any) {
+      showToast(err?.response?.data?.message || "Failed to delete user account.", "error");
+    }
+  };
+
   // Register Owner
   const handleRegisterOwner = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -321,7 +364,8 @@ const AdminDashboard = () => {
       await axiosInstance.post("/auth/owner/register", ownerForm);
       showToast(`Owner account registered for ${ownerForm.fullName}! 🎉`);
       setOwnerForm({ fullName: "", emailId: "", password: "", contactNumber: "" });
-      setActiveTab("Turfs");
+      setActiveTab("Users");
+      loadAdminData();
     } catch (err: any) {
       showToast(err?.response?.data?.message || "Failed to register owner account.", "error");
     } finally {
@@ -331,7 +375,8 @@ const AdminDashboard = () => {
 
   // Stats
   const activeTurfsCount = turfs.filter((t) => t.status === "active").length;
-  const avgPrice = turfs.length > 0 ? Math.round(turfs.reduce((s, t) => s + t.pricePerSlot, 0) / turfs.length) : 0;
+  const ownersCount = users.filter((u) => u.role === "owner").length;
+  const totalBookingsCount = Object.values(turfBookingCounts).reduce((a, b) => a + b, 0);
 
   if (authLoading || loading) {
     return (
@@ -384,18 +429,19 @@ const AdminDashboard = () => {
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
           <StatCard icon={FaBuilding} label="Total Venues" value={turfs.length} color="bg-blue-500" />
           <StatCard icon={FaTrophy} label="Active Turfs" value={activeTurfsCount} color="bg-green-500" />
-          <StatCard icon={FaRupeeSign} label="Avg. Price / Slot" value={`₹${avgPrice}`} color="bg-orange-500" />
-          <StatCard icon={FaUsers} label="Admin Account" value="Verified" color="bg-purple-500" />
+          <StatCard icon={FaBookOpen} label="Total Bookings" value={totalBookingsCount} color="bg-orange-500" />
+          <StatCard icon={FaUsers} label="Owners Registered" value={ownersCount} color="bg-purple-500" />
         </div>
 
         {/* Sidebar + Main Grid */}
         <div className="grid grid-cols-1 lg:grid-cols-4 gap-8">
           
-          {/* Tabs */}
+          {/* Navigation Tabs */}
           <div className="lg:col-span-1 flex flex-col gap-2">
             {[
               { id: "Overview", label: "Overview", icon: FaTrophy },
-              { id: "Turfs", label: `Manage Turfs (${turfs.length})`, icon: FaBuilding },
+              { id: "Turfs", label: `Venues & Bookings (${turfs.length})`, icon: FaBuilding },
+              { id: "Users", label: `Manage Users (${users.length})`, icon: FaUserShield },
               { id: "CreateOwner", label: "Register Owner", icon: FaUserPlus },
             ].map((tab) => {
               const Icon = tab.icon;
@@ -430,7 +476,7 @@ const AdminDashboard = () => {
                   className="bg-white dark:bg-slate-900/50 border border-slate-200 dark:border-slate-800 rounded-3xl p-6 md:p-8 shadow-sm space-y-6"
                 >
                   <h3 className="text-xl font-black border-b border-slate-100 dark:border-slate-800 pb-3">
-                    System Health & Overview
+                    System Health &amp; Analytics
                   </h3>
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                     <div className="bg-slate-50 dark:bg-slate-950 p-5 rounded-2xl border border-slate-200 dark:border-slate-800 space-y-2">
@@ -438,15 +484,15 @@ const AdminDashboard = () => {
                       <p className="text-lg font-black text-green-500 flex items-center gap-2">
                         <FaCheckCircle /> Connected (MongoDB Atlas)
                       </p>
-                      <p className="text-xs text-slate-400">Storing live turfs, reservations, and user accounts.</p>
+                      <p className="text-xs text-slate-400">Storing live turfs, reviews, reservations, and users.</p>
                     </div>
 
                     <div className="bg-slate-50 dark:bg-slate-950 p-5 rounded-2xl border border-slate-200 dark:border-slate-800 space-y-2">
-                      <p className="text-xs font-bold text-slate-400 uppercase tracking-wider">Security & Redis</p>
+                      <p className="text-xs font-bold text-slate-400 uppercase tracking-wider">Security &amp; Auth</p>
                       <p className="text-lg font-black text-purple-500 flex items-center gap-2">
-                        <FaCheckCircle /> JWT Auth & Token Blacklisting Active
+                        <FaCheckCircle /> JWT &amp; Redis Session Security
                       </p>
-                      <p className="text-xs text-slate-400">Sessions strictly validated on each request.</p>
+                      <p className="text-xs text-slate-400">Role authorization enforced on all private endpoints.</p>
                     </div>
                   </div>
 
@@ -468,7 +514,7 @@ const AdminDashboard = () => {
                 </motion.div>
               )}
 
-              {/* TURFS TAB */}
+              {/* TURFS TAB (Includes Total Bookings by Turf) */}
               {activeTab === "Turfs" && (
                 <motion.div
                   key="Turfs"
@@ -478,7 +524,7 @@ const AdminDashboard = () => {
                   className="bg-white dark:bg-slate-900/50 border border-slate-200 dark:border-slate-800 rounded-3xl p-6 md:p-8 shadow-sm space-y-6"
                 >
                   <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-4">
-                    <h3 className="text-xl font-black">Platform Venues ({turfs.length})</h3>
+                    <h3 className="text-xl font-black">Platform Venues &amp; Booking Counts ({turfs.length})</h3>
                     <button
                       onClick={() => setShowAddTurfModal(true)}
                       className="bg-green-500 hover:bg-green-600 text-white font-bold py-2 px-4 rounded-xl text-xs flex items-center gap-1.5 cursor-pointer shadow-sm"
@@ -498,8 +544,9 @@ const AdminDashboard = () => {
                           <tr className="border-b border-slate-200 dark:border-slate-800 text-slate-400 uppercase font-bold tracking-wider">
                             <th className="pb-3 pl-2">Turf</th>
                             <th className="pb-3">Location</th>
+                            <th className="pb-3">Slot Duration</th>
                             <th className="pb-3">Price / Slot</th>
-                            <th className="pb-3">Sports</th>
+                            <th className="pb-3">Total Bookings</th>
                             <th className="pb-3">Status</th>
                             <th className="pb-3 pr-2 text-right">Actions</th>
                           </tr>
@@ -518,13 +565,19 @@ const AdminDashboard = () => {
                                     <Link to={`/turf/${t._id}`} className="font-bold text-slate-800 dark:text-white hover:text-green-500 transition block">
                                       {t.turfName}
                                     </Link>
-                                    <span className="text-[10px] text-slate-400">{t.slotDuration} min slots</span>
+                                    <span className="text-[10px] text-slate-400">{t.sportsType.join(", ")}</span>
                                   </div>
                                 </div>
                               </td>
                               <td className="py-3.5 font-semibold text-slate-600 dark:text-slate-400">{t.location.city}</td>
+                              <td className="py-3.5 font-bold text-slate-700 dark:text-slate-300">{t.slotDuration} mins</td>
                               <td className="py-3.5 font-extrabold text-green-600 dark:text-green-400">₹{t.pricePerSlot}</td>
-                              <td className="py-3.5 font-semibold text-slate-600 dark:text-slate-400">{t.sportsType.join(", ")}</td>
+                              <td className="py-3.5">
+                                <span className="inline-flex items-center gap-1 font-black text-slate-800 dark:text-white bg-slate-100 dark:bg-slate-800 px-2.5 py-1 rounded-lg">
+                                  <FaBookOpen className="text-green-500 text-[10px]" />
+                                  {turfBookingCounts[t._id] || 0} Bookings
+                                </span>
+                              </td>
                               <td className="py-3.5">
                                 <span className={`px-2.5 py-0.5 rounded-full text-[9px] font-black uppercase border ${
                                   t.status === "active"
@@ -569,6 +622,73 @@ const AdminDashboard = () => {
                       </table>
                     </div>
                   )}
+                </motion.div>
+              )}
+
+              {/* USER MANAGEMENT TAB */}
+              {activeTab === "Users" && (
+                <motion.div
+                  key="Users"
+                  initial={{ opacity: 0, y: 12 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: -12 }}
+                  className="bg-white dark:bg-slate-900/50 border border-slate-200 dark:border-slate-800 rounded-3xl p-6 md:p-8 shadow-sm space-y-6"
+                >
+                  <div className="border-b border-slate-100 dark:border-slate-800 pb-4">
+                    <h3 className="text-xl font-black">User Accounts Management ({users.length})</h3>
+                    <p className="text-xs text-slate-400 mt-1">View, promote user roles (Customer / Owner / Admin), or delete accounts.</p>
+                  </div>
+
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-xs text-left border-collapse">
+                      <thead>
+                        <tr className="border-b border-slate-200 dark:border-slate-800 text-slate-400 uppercase font-bold tracking-wider">
+                          <th className="pb-3 pl-2">User Details</th>
+                          <th className="pb-3">Contact Number</th>
+                          <th className="pb-3">Role</th>
+                          <th className="pb-3">Joined Date</th>
+                          <th className="pb-3 pr-2 text-right">Actions</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                        {users.map((u) => (
+                          <tr key={u._id} className="hover:bg-slate-50 dark:hover:bg-white/5 transition">
+                            <td className="py-3.5 pl-2">
+                              <div>
+                                <span className="font-bold text-slate-800 dark:text-white block">{u.fullName}</span>
+                                <span className="text-[10px] text-slate-400">{u.emailId}</span>
+                              </div>
+                            </td>
+                            <td className="py-3.5 font-semibold text-slate-600 dark:text-slate-400">{u.contactNumber}</td>
+                            <td className="py-3.5">
+                              <select
+                                value={u.role}
+                                onChange={(e) => handleUserRoleChange(u._id, e.target.value as any)}
+                                disabled={u._id === user?._id}
+                                className="bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-slate-800 dark:text-slate-200 py-1 px-2.5 rounded-lg text-xs font-bold focus:outline-none cursor-pointer disabled:opacity-60"
+                              >
+                                <option value="user">User</option>
+                                <option value="owner">Owner</option>
+                                <option value="admin">Admin</option>
+                              </select>
+                            </td>
+                            <td className="py-3.5 text-slate-400">{new Date(u.createdAt).toLocaleDateString()}</td>
+                            <td className="py-3.5 pr-2 text-right">
+                              {u._id !== user?._id && (
+                                <button
+                                  onClick={() => handleDeleteUser(u._id)}
+                                  className="p-2 bg-red-500/10 border border-red-500/20 text-red-500 rounded-lg cursor-pointer hover:bg-red-500 hover:text-white transition text-xs"
+                                  title="Delete Account"
+                                >
+                                  <FaTrash />
+                                </button>
+                              )}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
                 </motion.div>
               )}
 
@@ -654,7 +774,7 @@ const AdminDashboard = () => {
 
       </div>
 
-      {/* ══ ADD TURF MODAL ══════════════════════════════════════════════════════ */}
+      {/* ══ ADD TURF MODAL (With Slot Duration Options 30, 60, 90, 120 mins) ════════════════ */}
       {showAddTurfModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
           <div onClick={() => setShowAddTurfModal(false)} className="absolute inset-0 bg-slate-950/70 backdrop-blur-sm" />
@@ -690,7 +810,19 @@ const AdminDashboard = () => {
                   <InputField label="Closing Time" type="time" required value={addForm.closingTime} onChange={(v) => setAddForm({ ...addForm, closingTime: v })} />
                 </div>
                 <div className="grid grid-cols-2 gap-4">
-                  <InputField label="Slot Duration (min)" type="number" required value={String(addForm.slotDuration)} onChange={(v) => setAddForm({ ...addForm, slotDuration: Number(v) })} />
+                  <div>
+                    <label className="block text-xs font-bold uppercase tracking-wider text-slate-400 mb-1.5">Slot Duration</label>
+                    <select
+                      value={addForm.slotDuration}
+                      onChange={(e) => setAddForm({ ...addForm, slotDuration: Number(e.target.value) })}
+                      className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-slate-800 dark:text-slate-200 py-2.5 px-4 rounded-xl text-sm focus:outline-none cursor-pointer"
+                    >
+                      <option value={30}>30 Minutes</option>
+                      <option value={60}>60 Minutes (1 Hour)</option>
+                      <option value={90}>90 Minutes (1.5 Hours)</option>
+                      <option value={120}>120 Minutes (2 Hours)</option>
+                    </select>
+                  </div>
                   <InputField label="Price Per Slot (₹)" type="number" required value={String(addForm.pricePerSlot)} onChange={(v) => setAddForm({ ...addForm, pricePerSlot: Number(v) })} />
                 </div>
                 <InputField label="Sports Type (comma-separated)" required value={addForm.sportsType} onChange={(v) => setAddForm({ ...addForm, sportsType: v })} />
@@ -738,7 +870,7 @@ const AdminDashboard = () => {
         </div>
       )}
 
-      {/* ══ EDIT TURF MODAL ════════════════════════════════════════════════════ */}
+      {/* ══ EDIT TURF MODAL (With Slot Duration Options 30, 60, 90, 120 mins) ═══════════════ */}
       {showEditTurfModal && selectedTurf && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
           <div onClick={() => setShowEditTurfModal(false)} className="absolute inset-0 bg-slate-950/70 backdrop-blur-sm" />
@@ -773,7 +905,19 @@ const AdminDashboard = () => {
                   <InputField label="Closing Time" type="time" required value={editForm.closingTime} onChange={(v) => setEditForm({ ...editForm, closingTime: v })} />
                 </div>
                 <div className="grid grid-cols-2 gap-4">
-                  <InputField label="Slot Duration (min)" type="number" required value={String(editForm.slotDuration)} onChange={(v) => setEditForm({ ...editForm, slotDuration: Number(v) })} />
+                  <div>
+                    <label className="block text-xs font-bold uppercase tracking-wider text-slate-400 mb-1.5">Slot Duration</label>
+                    <select
+                      value={editForm.slotDuration}
+                      onChange={(e) => setEditForm({ ...editForm, slotDuration: Number(e.target.value) })}
+                      className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-slate-800 dark:text-slate-200 py-2.5 px-4 rounded-xl text-sm focus:outline-none cursor-pointer"
+                    >
+                      <option value={30}>30 Minutes</option>
+                      <option value={60}>60 Minutes (1 Hour)</option>
+                      <option value={90}>90 Minutes (1.5 Hours)</option>
+                      <option value={120}>120 Minutes (2 Hours)</option>
+                    </select>
+                  </div>
                   <InputField label="Price Per Slot (₹)" type="number" required value={String(editForm.pricePerSlot)} onChange={(v) => setEditForm({ ...editForm, pricePerSlot: Number(v) })} />
                 </div>
                 <InputField label="Sports Type (comma-separated)" required value={editForm.sportsType} onChange={(v) => setEditForm({ ...editForm, sportsType: v })} />
