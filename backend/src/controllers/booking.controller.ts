@@ -191,33 +191,41 @@ const verifyPayment = asyncHandler(async (req: Request, res: Response) => {
   const turf: any = booking.turf;
   const user: any = booking.user;
 
-  const [emailSent, whatsappSent] = await Promise.all([
-    sendBookingConfirmationEmail({
-      to: user.emailId,
-      userName: user.fullName,
-      turfName: turf.turfName,
-      bookingDate: booking.bookingDate.toDateString(),
-      startTime: booking.startTime,
-      endTime: booking.endTime,
-      amount: booking.totalAmount,
-      bookingId: String(booking._id),
-    }).catch(() => false),
-    sendBookingConfirmationWhatsapp({
-      to: user.contactNumber,
-      userName: user.fullName,
-      turfName: turf.turfName,
-      bookingDate: booking.bookingDate.toDateString(),
-      startTime: booking.startTime,
-      endTime: booking.endTime,
-      amount: booking.totalAmount,
-      bookingId: String(booking._id),
-    }).catch(() => false),
-  ]);
+  // Send HTTP response IMMEDIATELY so the user UI updates instantly to SUCCESS!
+  res.status(200).json(new ApiResponse(200, booking, "Booking confirmed successfully"));
 
-  booking.notifications = { emailSent, whatsappSent };
-  await booking.save();
+  // Fire-and-forget background notifications (does not block HTTP response)
+  setImmediate(async () => {
+    try {
+      const [emailSent, whatsappSent] = await Promise.all([
+        sendBookingConfirmationEmail({
+          to: user.emailId,
+          userName: user.fullName,
+          turfName: turf.turfName,
+          bookingDate: booking.bookingDate.toDateString(),
+          startTime: booking.startTime,
+          endTime: booking.endTime,
+          amount: booking.totalAmount,
+          bookingId: String(booking._id),
+        }).catch(() => false),
+        sendBookingConfirmationWhatsapp({
+          to: user.contactNumber,
+          userName: user.fullName,
+          turfName: turf.turfName,
+          bookingDate: booking.bookingDate.toDateString(),
+          startTime: booking.startTime,
+          endTime: booking.endTime,
+          amount: booking.totalAmount,
+          bookingId: String(booking._id),
+        }).catch(() => false),
+      ]);
 
-  return res.status(200).json(new ApiResponse(200, booking, "Booking confirmed successfully"));
+      booking.notifications = { emailSent, whatsappSent };
+      await booking.save();
+    } catch (bgError) {
+      console.error("Background notification error:", bgError);
+    }
+  });
 });
 
 const razorpayWebhook = asyncHandler(async (req: Request, res: Response) => {
