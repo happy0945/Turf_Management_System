@@ -328,6 +328,33 @@ const deleteUserByAdmin = asyncHandler(async (req: Request, res: Response) => {
     res.status(200).json(new ApiResponse(200, null, "User deleted successfully"));
 });
 
+// =============== testEmail (Diagnostic Helper) ================
+const testEmail = asyncHandler(async (req: Request, res: Response) => {
+    const { sendBookingConfirmationEmail } = await import("../utils/email.js");
+    const recipient = (req.query.to as string) || process.env.SMTP_EMAIL;
+
+    if (!recipient) {
+        throw new ApiError(400, "Please provide a 'to' email parameter (e.g. ?to=your@email.com)");
+    }
+
+    const success = await sendBookingConfirmationEmail({
+        to: recipient,
+        userName: "Test Athlete",
+        turfName: "Test Arena",
+        bookingDate: new Date().toDateString(),
+        startTime: "18:00",
+        endTime: "19:00",
+        amount: 500,
+        bookingId: "TEST-BOOKING-12345",
+    });
+
+    if (success) {
+        res.status(200).json(new ApiResponse(200, { recipient, status: "sent" }, `Test confirmation email sent successfully to ${recipient}!`));
+    } else {
+        throw new ApiError(500, `Email delivery failed. Check Render server logs for exact error trace (SMTP_EMAIL configured: ${Boolean(process.env.SMTP_EMAIL)}).`);
+    }
+});
+
 export {
     registerUser,
     loginUser,
@@ -340,5 +367,7 @@ export {
     getAllUsers,
     updateUserRole,
     deleteUserByAdmin,
+    testEmail,
 };
+
 

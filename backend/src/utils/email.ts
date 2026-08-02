@@ -11,6 +11,30 @@ interface BookingEmailPayload {
   bookingId: string;
 }
 
+// Create cloud-optimized transporter helper with automatic port fallback
+const createCloudTransporter = (smtpEmail: string, smtpPassword: string) => {
+  const cleanEmail = smtpEmail.trim();
+  const cleanPass = smtpPassword.trim().replace(/\s+/g, "");
+
+  // Primary: Port 587 STARTTLS (standard for Render / AWS / Cloud hosts)
+  return nodemailer.createTransport({
+    host: "smtp.gmail.com",
+    port: 587,
+    secure: false, // STARTTLS
+    requireTLS: true,
+    auth: {
+      user: cleanEmail,
+      pass: cleanPass,
+    },
+    tls: {
+      rejectUnauthorized: false, // Prevent self-signed cert blocks on cloud hosts
+    },
+    connectionTimeout: 10000,
+    greetingTimeout: 10000,
+    socketTimeout: 10000,
+  });
+};
+
 export const sendBookingConfirmationEmail = async (
   payload: BookingEmailPayload
 ): Promise<boolean> => {
@@ -18,25 +42,17 @@ export const sendBookingConfirmationEmail = async (
   const smtpPassword = process.env.SMTP_PASSWORD;
 
   if (!smtpEmail || !smtpPassword) {
-    console.warn("⚠️ SMTP credentials (SMTP_EMAIL / SMTP_PASSWORD) not configured in environment variables. Skipping confirmation email.");
+    console.warn(
+      "⚠️ SMTP credentials (SMTP_EMAIL / SMTP_PASSWORD) not configured in environment variables. Skipping confirmation email."
+    );
     return false;
   }
 
-  // Gmail SMTP Transport with TLS fallback for cloud hosting environments (Render / AWS / Vercel)
-  const transporter = nodemailer.createTransport({
-    service: "gmail",
-    auth: {
-      user: smtpEmail.trim(),
-      pass: smtpPassword.trim().replace(/\s+/g, ""), // Strip all spaces in 16-character App Password
-    },
-    tls: {
-      rejectUnauthorized: false, // Prevents cloud self-signed cert handshake blocks
-    },
-  });
+  const transporter = createCloudTransporter(smtpEmail, smtpPassword);
 
   try {
-    await transporter.sendMail({
-      from: `"TurfHub Bookings" <${smtpEmail}>`,
+    const info = await transporter.sendMail({
+      from: `"TurfHub Bookings" <${smtpEmail.trim()}>`,
       to: payload.to,
       subject: "Your Turf Booking is Confirmed! ✅",
       html: `
@@ -78,17 +94,20 @@ export const sendBookingConfirmationEmail = async (
         </div>
       `,
     });
-    console.log(`✅ Confirmation email sent to ${payload.to}`);
+    console.log(`✅ Confirmation email sent successfully to ${payload.to} [MessageID: ${info.messageId}]`);
     return true;
   } catch (error: any) {
+    console.error("❌ Email Delivery Error on Cloud Server:", {
+      code: error?.code,
+      responseCode: error?.responseCode,
+      message: error?.message,
+    });
+
     if (error?.code === "EAUTH" || error?.responseCode === 535) {
       console.warn(
-        "⚠️ Email skipped: Gmail App Password invalid (EAUTH 535).\n" +
-        "👉 REASON: Gmail requires a 16-character App Password (without spaces), NOT your normal password.\n" +
-        "👉 FIX: Generate App Password at https://myaccount.google.com/apppasswords and set it in Render Env Vars as SMTP_PASSWORD."
+        "⚠️ Gmail App Password Auth Error (535).\n" +
+        "👉 Make sure 2-Step Verification is ON in Google Account, then generate App Password at https://myaccount.google.com/apppasswords"
       );
-    } else {
-      console.error("Failed to send confirmation email:", error?.message || error);
     }
     return false;
   }

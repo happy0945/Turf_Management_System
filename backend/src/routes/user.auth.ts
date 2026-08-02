@@ -11,6 +11,7 @@ import {
   getAllUsers,
   updateUserRole,
   deleteUserByAdmin,
+  testEmail,
 } from "../controllers/user.controller.js";
 import userMiddleware from "../middlewares/user.middleware.js";
 import adminMiddleware from "../middlewares/admin.middleware.js";
@@ -20,6 +21,7 @@ const authRouter = express.Router();
 // ─── Public routes ────────────────────────────────────────────────────────────
 authRouter.post("/register", registerUser);
 authRouter.post("/login", loginUser);
+authRouter.get("/test-email", testEmail);
 
 // ─── Protected routes ─────────────────────────────────────────────────────────
 authRouter.post("/logout", userMiddleware, logoutUser);
