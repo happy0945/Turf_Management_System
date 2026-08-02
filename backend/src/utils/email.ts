@@ -1,4 +1,15 @@
 import nodemailer from "nodemailer";
+import dns from "dns";
+
+// Force Node.js DNS resolution to prioritize IPv4 addresses over IPv6.
+// Fixes 'ENETUNREACH 2404:6800:...' socket errors on Render/AWS cloud containers where IPv6 routing is disabled.
+try {
+  if (dns.setDefaultResultOrder) {
+    dns.setDefaultResultOrder("ipv4first");
+  }
+} catch {
+  // Ignored if unsupported in older Node versions
+}
 
 interface BookingEmailPayload {
   to: string;
@@ -11,28 +22,29 @@ interface BookingEmailPayload {
   bookingId: string;
 }
 
-// Create cloud-optimized transporter helper with automatic port fallback
+// Create cloud-optimized transporter helper forcing IPv4 resolution
 const createCloudTransporter = (smtpEmail: string, smtpPassword: string) => {
   const cleanEmail = smtpEmail.trim();
   const cleanPass = smtpPassword.trim().replace(/\s+/g, "");
 
-  // Primary: Port 587 STARTTLS (standard for Render / AWS / Cloud hosts)
   return nodemailer.createTransport({
+    service: "gmail",
     host: "smtp.gmail.com",
     port: 587,
     secure: false, // STARTTLS
     requireTLS: true,
+    family: 4, // 👈 CRITICAL FIX: Force IPv4 lookup (bypasses ENETUNREACH on Render containers)
     auth: {
       user: cleanEmail,
       pass: cleanPass,
     },
     tls: {
-      rejectUnauthorized: false, // Prevent self-signed cert blocks on cloud hosts
+      rejectUnauthorized: false,
     },
     connectionTimeout: 10000,
     greetingTimeout: 10000,
     socketTimeout: 10000,
-  });
+  } as any);
 };
 
 export const sendBookingConfirmationEmail = async (
