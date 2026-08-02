@@ -1,12 +1,13 @@
 import nodemailer from "nodemailer";
 import dns from "dns";
 
+// Prefer IPv4 globally
 try {
   if (dns.setDefaultResultOrder) {
     dns.setDefaultResultOrder("ipv4first");
   }
 } catch {
-  // Ignored if unsupported in older Node versions
+  // Ignored
 }
 
 interface BookingEmailPayload {
@@ -66,7 +67,7 @@ export const sendBookingConfirmationEmail = async (
     </div>
   `;
 
-  // 🌟 METHOD 1: Resend HTTP API (Port 443 HTTPS — 100% Cloud Firewall Proof)
+  // 🌟 METHOD 1: Resend HTTP API (HTTPS Port 443 — 100% Cloud Firewall Proof)
   if (resendApiKey) {
     try {
       const res = await fetch("https://api.resend.com/emails", {
@@ -88,30 +89,34 @@ export const sendBookingConfirmationEmail = async (
         console.log(`✅ Confirmation email delivered via Resend API to ${payload.to} [ID: ${resData.id}]`);
         return true;
       } else {
-        console.error("❌ Resend API Error:", resData);
+        console.warn("⚠️ Resend API Warning/Restriction:", resData);
       }
     } catch (apiErr: any) {
       console.error("❌ Resend API Fetch Error:", apiErr?.message || apiErr);
     }
   }
 
-  // 🌟 METHOD 2: Nodemailer Standard SMTP
+  // 🌟 METHOD 2: Explicit IPv4 Nodemailer Transport (Port 587 STARTTLS)
   if (!smtpEmail || !smtpPassword) {
     console.warn("⚠️ Neither RESEND_API_KEY nor SMTP credentials found in environment variables. Skipping email.");
     return false;
   }
 
+  // Note: DO NOT pass service: "gmail" as it forces port 465 IPv6 internally in Nodemailer
   const transporter = nodemailer.createTransport({
-    service: "gmail",
+    host: "smtp.gmail.com",
+    port: 587,
+    secure: false, // STARTTLS
+    requireTLS: true,
+    family: 4, // 👈 FORCES IPv4 (Prevents ENETUNREACH 2404:... IPv6 socket errors)
     auth: {
       user: smtpEmail.trim(),
       pass: smtpPassword.trim().replace(/\s+/g, ""),
     },
-    family: 4,
     tls: {
       rejectUnauthorized: false,
     },
-    connectionTimeout: 5000,
+    connectionTimeout: 8000,
   } as any);
 
   try {
