@@ -3,7 +3,6 @@ import { useNavigate, Link } from "react-router-dom";
 import {
   FaTrophy,
   FaBuilding,
-  FaRupeeSign,
   FaUsers,
   FaPlus,
   FaTrash,

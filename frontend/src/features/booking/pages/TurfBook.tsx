@@ -2,7 +2,7 @@ import { useState, useEffect } from "react";
 import { motion } from "framer-motion";
 import { useSearchParams, useNavigate, Link } from "react-router-dom";
 import {
-  FaCheckCircle, FaClock,
+  FaCheckCircle,
   FaCreditCard, FaSpinner, FaExclamationCircle, FaLock
 } from "react-icons/fa";
 import { turfService, type Turf, type TimeSlot } from "../../../services/turfService";
