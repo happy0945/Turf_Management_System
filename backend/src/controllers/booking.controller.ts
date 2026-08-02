@@ -15,6 +15,15 @@ import { CreateBookingInput, VerifyPaymentInput } from "../utils/validator/booki
 
 const PENDING_BOOKING_TTL_MINUTES = 10;
 
+// Helper to parse date string into strict UTC range for timezone-agnostic matching
+const getUTCDateRange = (dateStr: string) => {
+  const cleanDate = dateStr.split("T")[0];
+  const [year, month, day] = cleanDate.split("-").map(Number);
+  const start = new Date(Date.UTC(year, month - 1, day, 0, 0, 0, 0));
+  const end = new Date(Date.UTC(year, month - 1, day, 23, 59, 59, 999));
+  return { start, end, bookingDate: start };
+};
+
 // =============== getAvailableSlots ===============
 const getAvailableSlots = asyncHandler(async (req: Request, res: Response) => {
   const { turfId } = req.params;
@@ -29,11 +38,10 @@ const getAvailableSlots = asyncHandler(async (req: Request, res: Response) => {
     throw new ApiError(404, "Turf not found");
   }
 
-  const bookingDate = new Date(date);
-  bookingDate.setHours(0, 0, 0, 0);
+  const { start, end, bookingDate } = getUTCDateRange(date);
 
   const today = new Date();
-  today.setHours(0, 0, 0, 0);
+  today.setUTCHours(0, 0, 0, 0);
   if (bookingDate < today) {
     throw new ApiError(400, "Cannot fetch slots for a past date");
   }
@@ -42,7 +50,7 @@ const getAvailableSlots = asyncHandler(async (req: Request, res: Response) => {
 
   const bookedSlots = await Booking.find({
     turf: turfId,
-    bookingDate,
+    bookingDate: { $gte: start, $lte: end },
     status: { $in: ["pending", "confirmed"] },
   })
     .select("startTime")
@@ -67,13 +75,24 @@ const createBooking = asyncHandler(async (req: Request, res: Response) => {
     throw new ApiError(404, "Turf not found");
   }
 
-  const bookingDate = new Date(body.bookingDate);
-  bookingDate.setHours(0, 0, 0, 0);
+  const { start, end, bookingDate } = getUTCDateRange(body.bookingDate);
 
   const today = new Date();
-  today.setHours(0, 0, 0, 0);
+  today.setUTCHours(0, 0, 0, 0);
   if (bookingDate < today) {
     throw new ApiError(400, "Cannot book a slot in the past");
+  }
+
+  // Check if slot is already booked for this date range & start time
+  const existingBooking = await Booking.findOne({
+    turf: turf._id,
+    bookingDate: { $gte: start, $lte: end },
+    startTime: body.startTime,
+    status: { $in: ["pending", "confirmed"] },
+  });
+
+  if (existingBooking) {
+    throw new ApiError(409, "This slot is already booked or awaiting payment");
   }
 
   const validSlots = generateSlots(turf.openingTime, turf.closingTime, turf.slotDuration);

@@ -22,18 +22,16 @@ export const sendBookingConfirmationEmail = async (
     return false;
   }
 
-  // Explicit Gmail SMTP configuration compatible with Cloud Hosting (Render, Vercel, Railway, AWS)
+  // Gmail SMTP Transport with TLS fallback for cloud hosting environments (Render / AWS / Vercel)
   const transporter = nodemailer.createTransport({
-    host: "smtp.gmail.com",
-    port: 465,
-    secure: true, // true for port 465, false for 587
+    service: "gmail",
     auth: {
       user: smtpEmail.trim(),
-      pass: smtpPassword.trim().replace(/\s+/g, ""), // Remove spaces in 16-character App Password
+      pass: smtpPassword.trim().replace(/\s+/g, ""), // Strip all spaces in 16-character App Password
     },
-    connectionTimeout: 8000, // 8 second timeout to avoid cloud hanging
-    greetingTimeout: 8000,
-    socketTimeout: 8000,
+    tls: {
+      rejectUnauthorized: false, // Prevents cloud self-signed cert handshake blocks
+    },
   });
 
   try {
